@@ -77,13 +77,10 @@ class P1DLikelihood():
         ndof = self._data.size - self._mini.nfit
         print(f"Chi2 / dof= {chi2:.1f} / {ndof:d}")
 
-    def getIntegratedModel(self, **kwargs):
-        return self.p1dmodel.getIntegratedModel(**kwargs)
-
     def chi2(self, *args):
         kwargs = {par: args[i] for i, par in enumerate(self.names)}
 
-        pmodel = self.getIntegratedModel(**kwargs)
+        pmodel = self.p1dmodel.getIntegratedModel(**kwargs)
         diff = pmodel - self._data['p']
 
         if self._cov is None:
