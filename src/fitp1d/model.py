@@ -42,7 +42,32 @@ def evaluatePD13Lorentz(k, z, A, n, alpha, B, beta, k1):
     return result
 
 
-class IonModel:
+class Model():
+    def __init__(self):
+        self.names = []
+        self.boundary = {}
+        self.initial = {}
+        self.param_labels = {}
+        self.fixed_params = {}
+
+    def fixParam(self, key, value=None):
+        if not self.names:
+            return
+
+        if key not in self.names:
+            return
+
+        if value is None:
+            value = self.initial[key]
+
+        self.fixed_params[key] = value
+        self.boundary[key] = (value, value)
+        self.initial.pop(key, None)
+        self.param_labels.pop(key, None)
+        self.names = [x for x in self.names if x != key]
+
+
+class IonModel(Model):
     Transitions = {
         "Si-II": [(1190.42, 2.77e-01), (1193.28, 5.75e-01),
                   (1194.50, 7.37e-01), (1197.39, 1.50e-01)],
@@ -85,7 +110,7 @@ class IonModel:
 
             for p1, p2 in itertools.combinations(transitions, 2):
                 vmn = np.abs(LIGHT_SPEED * np.log(p2[0] / p1[0]))
-                r = p1[1] * p2[1] / fpivot**2
+                r = (p1[1] / fpivot) * (p2[1] / fpivot)
                 result += 2 * r * np.cos(karr * vmn)
 
             self._splines['oneion_a2'][f"a_{ion}"] = CubicSpline(karr, result)
@@ -111,6 +136,7 @@ class IonModel:
                 CubicSpline(karr, result)
 
     def __init__(self):
+        super().__init__()
         self.names = ["a_Si-II", "a_Si-III"]
         self._name_combos = itertools.combinations(self.names, 2)
         self.param_labels = {
@@ -122,7 +148,6 @@ class IonModel:
         self.boundary = {k: (-1, 1) for k in self.names}
 
         self._splines = {}
-        self._integrated_nkbins = -1
         self._integrated_model = {}
         self.kfine = None
 
@@ -146,7 +171,7 @@ class IonModel:
                 v = interp(self.kfine).reshape(nkbins, nsubk).mean(axis=1)
                 self._integrated_model[term][ionkey] = v
 
-    def getIntegratedModel(self, **kwargs):
+    def getCachedModel(self, **kwargs):
         result = np.ones_like(self.kfine)
 
         for key in self.names:
@@ -177,8 +202,52 @@ class IonModel:
                 self._integrated_model[term][ionkey] = interp(kfine)
 
 
-class LyaP1DModel():
+class ResolutionModel(Model):
+    def __init__(self, add_bias=True, add_variance=True):
+        super().__init__()
+
+        if add_bias:
+            self.names.append("b_reso")
+            self.boundary['b_reso'] = (-0.1, 0.1)
+            self.initial['b_reso'] = 0
+            self.param_labels['b_reso'] = r"b_R"
+
+        if add_variance:
+            self.names.append("var_reso")
+            self.boundary['var_reso'] = (-0.0001, 0.1)
+            self.initial['var_reso'] = 0
+            self.param_labels['var_reso'] = r"\sigma^2_R"
+
+        self.rkms = None
+        self.kfine = None
+        self._cached_model = None
+
+    def cache(self, kfine, rkms):
+        self.kfine = kfine
+        self.rkms = rkms
+        self._cached_model = {}
+
+        if "b_reso" in self.names:
+            self._cached_model["b_reso"] = -(kfine * rkms)**2
+
+        if "var_reso" in self.names:
+            self._cached_model["var_reso"] = (kfine * rkms)**4 / 2
+
+    def getCachedModel(self, **kwargs):
+        if not self.names:
+            return 1
+
+        result = np.zeros_like(self.kfine)
+        for rkey in self.names:
+            result += kwargs[rkey] * self._cached_model[rkey]
+
+        return np.exp(result)
+
+
+class LyaP1DModel(Model):
     def __init__(self):
+        super().__init__()
+
         self.names = [
             'A', 'n', 'alpha', 'B', 'beta', 'k1'
         ]
@@ -197,43 +266,25 @@ class LyaP1DModel():
             "B": "B", "beta": r"\beta", "k1": r"k_1"
         }
 
-        self.fixed_params = {}
-        self.boundary = {}
         for par in self.names:
             x1, x2 = -100, 100
             if par == "k1":
                 x1 = 1e-6
             self.boundary[par] = (x1, x2)
 
-        self.ionmodel = IonModel()
-        self.names += self.ionmodel.names
-        self.initial |= self.ionmodel.initial
-        self.param_labels |= self.ionmodel.param_labels
-        self.boundary |= self.ionmodel.boundary
-
         self.nsubk = 20
         self.z = None
         self.kfine = None
         self.ndata = None
 
-    def fixParam(self, key, value=None):
-        if value is None:
-            value = self.initial[key]
-        self.fixed_params[key] = value
-        self.boundary[key] = (value, value)
-        self.initial.pop(key, None)
-        self.param_labels.pop(key, None)
-        self.names = [x for x in self.names if x != key]
-
-    def setFineKGrid(self, kedges, z):
+    def cache(self, kedges, z):
         assert isinstance(kedges, tuple)
         k1, k2 = kedges
         self.z = z
         self.kfine = np.linspace(k1, k2, self.nsubk, endpoint=False).T
         self.ndata = k1.size
-        self.ionmodel.cache(self.kfine)
 
-    def getIntegratedModel(self, **kwargs):
+    def getCachedModel(self, **kwargs):
         for key, value in self.fixed_params.items():
             kwargs[key] = value
 
@@ -242,9 +293,60 @@ class LyaP1DModel():
             kwargs['beta'], kwargs['k1']
         )
 
-        result = (
-            evaluatePD13Lorentz(self.kfine, self.z, A, n, alpha, B, beta, k1)
-            * self.ionmodel.getIntegratedModel(**kwargs)
-        ).reshape(self.ndata, self.nsubk).mean(axis=1)
+        result = evaluatePD13Lorentz(
+            self.kfine, self.z, A, n, alpha, B, beta, k1)
 
         return result
+
+
+class CombinedModel(Model):
+    def _setAttr(self):
+        self.names = []
+        self.boundary = {}
+        self.initial = {}
+        self.param_labels = {}
+
+        for M in self._models.values():
+            self.names += M.names
+            self.initial |= M.initial
+            self.param_labels |= M.param_labels
+            self.boundary |= M.boundary
+
+    def __init__(self, add_reso_bias, add_var_reso):
+        super().__init__()
+        self._models = {
+            'lya': LyaP1DModel(),
+            'ion': IonModel(),
+            'reso': ResolutionModel(add_reso_bias, add_var_reso)
+        }
+
+        self._setAttr()
+
+    @property
+    def ndata(self):
+        return self._models['lya'].ndata
+
+    @property
+    def nsubk(self):
+        return self._models['lya'].nsubk
+
+    def cache(self, kedges, z):
+        self._models['lya'].cache(kedges, z)
+        kfine = self._models['lya'].kfine
+        self._models['ion'].cache(kfine)
+
+        rkms = LIGHT_SPEED * 0.8 / (1 + z) / LYA_WAVELENGTH
+        self._models['reso'].cache(kfine, rkms)
+
+    def getIntegratedModel(self, **kwargs):
+        result = self._models['lya'].getCachedModel(**kwargs)
+        result *= self._models['ion'].getCachedModel(**kwargs)
+        result *= self._models['reso'].getCachedModel(**kwargs)
+        result = result.reshape(self.ndata, self.nsubk).mean(axis=1)
+
+        return result
+
+    def fixParam(self, key, value=None):
+        for M in self._models.values():
+            M.fixParam(key, value)
+        self._setAttr()

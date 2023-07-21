@@ -4,7 +4,7 @@ import iminuit
 from getdist import MCSamples
 
 from fitp1d.data import PSData
-from fitp1d.model import LyaP1DModel
+from fitp1d.model import CombinedModel
 
 
 class P1DLikelihood():
@@ -17,8 +17,11 @@ class P1DLikelihood():
         elif cov is not None:
             self.psdata.cov = cov.copy()
 
-    def __init__(self, fname_power=None, fname_cov=None, cov=None):
-        self.p1dmodel = LyaP1DModel()
+    def __init__(
+            self, add_reso_bias, add_var_reso,
+            fname_power=None, fname_cov=None, cov=None
+    ):
+        self.p1dmodel = CombinedModel(add_reso_bias, add_var_reso)
         self.p1dmodel.fixParam("B", 0)
         self.p1dmodel.fixParam("beta", 0)
         self.p1dmodel.fixParam("k1", 1e6)
@@ -67,7 +70,7 @@ class P1DLikelihood():
         else:
             self._invcov = np.linalg.inv(self._cov)
 
-        self.p1dmodel.setFineKGrid(kedges, z)
+        self.p1dmodel.cache(kedges, z)
         print(self._mini.migrad())
 
         chi2 = self._mini.fval
@@ -79,8 +82,6 @@ class P1DLikelihood():
 
     def chi2(self, *args):
         kwargs = {par: args[i] for i, par in enumerate(self.names)}
-        # for key, value in self.fixed_params.items():
-        #     kwargs[key] = value
 
         pmodel = self.getIntegratedModel(**kwargs)
         diff = pmodel - self._data['p']
