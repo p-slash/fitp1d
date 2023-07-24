@@ -39,6 +39,9 @@ class P1DLikelihood():
         self._mini.errordef = 1
         self._mini.print_level = 1
 
+        for key, boun in self.boundary:
+            self._mini.limits[key] = boun
+
         # self.fixParam("B", 0)
         # self.fixParam("beta", 0)
         # self.fixParam("k1", 1e6)
