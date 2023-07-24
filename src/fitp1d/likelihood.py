@@ -39,9 +39,9 @@ class P1DLikelihood():
         self._mini.errordef = 1
         self._mini.print_level = 1
 
-        self.fixParam("B", 0)
-        self.fixParam("beta", 0)
-        self.fixParam("k1", 1e6)
+        # self.fixParam("B", 0)
+        # self.fixParam("beta", 0)
+        # self.fixParam("k1", 1e6)
 
     def fixParam(self, key, value=None):
         self.free_params = [x for x in self.free_params if x != key]

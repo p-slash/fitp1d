@@ -189,6 +189,11 @@ class ResolutionModel(Model):
     def __init__(self, add_bias=True, add_variance=True):
         super().__init__()
 
+        # self.names = ["b_reso", "var_reso"]
+        # self.boundary = {'b_reso': (-0.1, 0.1), 'var_reso': (-0.0001, 0.1)}
+        # self.initial = {'b_reso': 0, 'var_reso': 0}
+        # self.param_labels = {'b_reso': r"b_R", 'var_reso': r"\sigma^2_R"}
+
         if add_bias:
             self.names.append("b_reso")
             self.boundary['b_reso'] = (-0.1, 0.1)
@@ -227,7 +232,7 @@ class ResolutionModel(Model):
         return np.exp(result)
 
 
-class LyaP1DModel(Model):
+class LyaP1DSimpleModel(Model):
     def __init__(self):
         super().__init__()
 
@@ -279,6 +284,102 @@ class LyaP1DModel(Model):
         return result
 
 
+class LyaP1DArinyoModel(Model):
+    def __init__(self):
+        super().__init__()
+
+        self.names = ['blya', 'beta', 'q1', 'kv', 'av', 'bv', 'kp']
+
+        self.initial = {
+            'blya': -0.2,
+            'beta': 1.67,
+            'q1': 0.65,
+            'kv': 0.8,
+            'av': 0.5,
+            'bv': 1.55,
+            'kp': 13.0
+        }
+
+        self.param_labels = {
+            "blya": r"b_\mathrm{Lya}", "beta": r"\beta_\mathrm{Lya}",
+            "q1": r"q_1", "kv": r"k_\nu", "av": r"a_\nu", "bv": r"b_\nu",
+            "kp": r"k_p"
+        }
+        self.boundary = {
+            'blya': (-1, 0),
+            'beta': (0.5, 2.5),
+            'q1': (0.1, 5.),
+            'kv': (0.1, 5.),
+            'av': (0.1, 5.),
+            'bv': (0.1, 5.),
+            'kp': (1., 50.)
+        }
+
+        self.nsubk = 20
+        self._kperp, self._dlnkperp = np.linspace(-4, 3, 1000, retstep=True)
+        self._kperp = np.exp(self._kperp)[:, np.newaxis, np.newaxis]
+        self._kperp2pi = self._kperp**2 / (2 * np.pi)
+
+        self.z = None
+        self._p3dlin = None
+        self.kfine_skm = None
+        self._k1d_Mpc = None
+        self._k3d = None
+        self._mu = None
+        self.Mpc2kms = None
+        self.ndata = None
+
+    def cache(self, kedges, z):
+        assert isinstance(kedges, tuple)
+        k1, k2 = kedges
+        self.z = z
+        self.kfine = np.linspace(k1, k2, self.nsubk, endpoint=False).T
+        self.ndata = k1.size
+
+        import camb
+        from astropy.cosmology import Planck18
+
+        camb_params = camb.set_params(
+            redshifts=[z],
+            WantTransfer=True, kmax=1e4,
+            omch2=Planck18.Odm0 * Planck18.h**2,
+            ombh2=Planck18.Ob0 * Planck18.h**2,
+            omk=0.,
+            H0=Planck18.H0.value,
+            ns=Planck18.meta['n']
+        )
+        camb_results = camb.get_results(camb_params)
+
+        camb_interp = camb_results.get_matter_power_interpolator(
+            nonlinear=False,
+            hubble_units=False,
+            k_hunit=False)
+
+        self.Mpc2kms = Planck18.H(z).value / (1 + z)
+        self._k1d_Mpc = self.kfine * self.Mpc2kms
+        self._k1d_Mpc = self._k1d_Mpc[np.newaxis, :]
+        self._k3d_Mpc = np.sqrt(self._kperp**2 + self._k1d_Mpc**2)
+        self._mu = self._k1d_Mpc / self._k3d_Mpc
+        self._p3dlin = camb_interp.P(z, self._k3d_Mpc)
+        self._Delta2 = self._p3dlin * self._k3d_Mpc**3 / 2 / np.pi**2
+
+    def getP3D(self, **kwargs):
+        bias_rsd = (kwargs['blya'] * (1 + kwargs['beta'] * self._mu**2))**2
+        t1 = (
+            (self._k3d_Mpc / kwargs['kv'])**kwargs['av']
+            * self._mu**kwargs['bv']
+        )
+        t2 = (self._k3d_Mpc / kwargs['kp'])**2
+        Fnl = np.exp(kwargs['q1'] * self._Delta2 * (1 - t1) - t2)
+
+        return self._p3dlin * bias_rsd * Fnl
+
+    def getCachedModel(self, **kwargs):
+        p3d_flux = self.getP3D(**kwargs) * self._kperp2pi
+        p1d_Mpc = np.trapz(p3d_flux, dx=self._dlnkperp, axis=0)
+        return p1d_Mpc * self.Mpc2kms
+
+
 class CombinedModel(Model):
     def _setAttr(self):
         self.names = []
@@ -295,7 +396,7 @@ class CombinedModel(Model):
     def __init__(self, add_reso_bias, add_var_reso):
         super().__init__()
         self._models = {
-            'lya': LyaP1DModel(),
+            'lya': LyaP1DArinyoModel(),
             'ion': IonModel(),
             'reso': ResolutionModel(add_reso_bias, add_var_reso)
         }
