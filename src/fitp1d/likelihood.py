@@ -22,11 +22,9 @@ class P1DLikelihood():
             fname_power=None, fname_cov=None, cov=None
     ):
         self.p1dmodel = CombinedModel(add_reso_bias, add_var_reso)
-        self.p1dmodel.fixParam("B", 0)
-        self.p1dmodel.fixParam("beta", 0)
-        self.p1dmodel.fixParam("k1", 1e6)
 
         self.names = self.p1dmodel.names
+        self.free_params = self.names.copy()
         self.initial = self.p1dmodel.initial
         self.boundary = self.p1dmodel.boundary
         self.param_labels = self.p1dmodel.param_labels
@@ -41,12 +39,27 @@ class P1DLikelihood():
         self._mini.errordef = 1
         self._mini.print_level = 1
 
+        self.fixParam("B", 0)
+        self.fixParam("beta", 0)
+        self.fixParam("k1", 1e6)
+
+    def fixParam(self, key, value=None):
+        self.free_params = [x for x in self.free_params if x != key]
+
+        self._mini.fixed[key] = True
+        if value is not None:
+            self._mini.values[key] = value
+
+    def releaseParam(self, key):
+        self._mini.fixed[key] = False
+        self.free_params.append(key)
+
     def sample(self, label, nwalkers=32, nsamples=20000):
-        ndim = len(self.names)
+        ndim = len(self.free_params)
         sampler = emcee.EnsembleSampler(nwalkers, ndim, self.likelihood)
 
         rshift = 1e-4 * np.random.default_rng().normal(size=(nwalkers, ndim))
-        p0 = list(self._mini.values.to_dict().values()) + rshift
+        p0 = self._mini.values[self.free_params] + rshift
         self.setPrior()
 
         _ = sampler.run_mcmc(p0, nsamples, progress=True)
@@ -56,10 +69,11 @@ class P1DLikelihood():
 
         samples = MCSamples(
             samples=sampler.get_chain(discard=1000, thin=15, flat=True),
-            names=self.names, label=label
+            names=self.free_params, label=label
         )
 
-        samples.paramNames.setLabels(list(self.param_labels.values()))
+        samples.paramNames.setLabels(
+            [self.param_labels[_] for _ in self.free_params])
 
         return samples
 
@@ -101,7 +115,7 @@ class P1DLikelihood():
             self.boundary[par] = (x1, x2)
 
     def logPrior(self, *args):
-        for i, par in enumerate(self.names):
+        for i, par in enumerate(self.free_params):
             x1, x2 = self.boundary[par]
 
             if args[i] < x1 or args[i] > x2:
@@ -114,4 +128,13 @@ class P1DLikelihood():
         if not np.isfinite(lp):
             return -np.inf
 
-        return -0.5 * self.chi2(*args)
+        new_args = []
+        j = 0
+        for par in self.names:
+            if par in self.free_params:
+                new_args.append(args[j])
+                j += 1
+            else:
+                new_args.append(self._mini.values[par])
+
+        return -0.5 * self.chi2(*new_args)

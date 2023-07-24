@@ -48,23 +48,6 @@ class Model():
         self.boundary = {}
         self.initial = {}
         self.param_labels = {}
-        self.fixed_params = {}
-
-    def fixParam(self, key, value=None):
-        if not self.names:
-            return
-
-        if key not in self.names:
-            return
-
-        if value is None:
-            value = self.initial[key]
-
-        self.fixed_params[key] = value
-        self.boundary[key] = (value, value)
-        self.initial.pop(key, None)
-        self.param_labels.pop(key, None)
-        self.names = [x for x in self.names if x != key]
 
 
 class IonModel(Model):
@@ -285,9 +268,6 @@ class LyaP1DModel(Model):
         self.ndata = k1.size
 
     def getCachedModel(self, **kwargs):
-        for key, value in self.fixed_params.items():
-            kwargs[key] = value
-
         A, n, alpha, B, beta, k1 = (
             kwargs['A'], kwargs['n'], kwargs['alpha'], kwargs['B'],
             kwargs['beta'], kwargs['k1']
@@ -345,8 +325,3 @@ class CombinedModel(Model):
         result = result.reshape(self.ndata, self.nsubk).mean(axis=1)
 
         return result
-
-    def fixParam(self, key, value=None):
-        for M in self._models.values():
-            M.fixParam(key, value)
-        self._setAttr()
