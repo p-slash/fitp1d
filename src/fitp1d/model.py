@@ -305,6 +305,7 @@ class LyaP1DArinyoModel(Model):
             "q1": r"q_1", "kv": r"k_\nu", "av": r"a_\nu", "bv": r"b_\nu",
             "kp": r"k_p"
         }
+
         self.boundary = {
             'blya': (-1, 0),
             'beta': (0.5, 2.5),
@@ -333,6 +334,9 @@ class LyaP1DArinyoModel(Model):
         assert isinstance(kedges, tuple)
         k1, k2 = kedges
         self.z = z
+        if self.z is not None and np.isclose(self.z, z):
+            return
+
         self.kfine = np.linspace(k1, k2, self.nsubk, endpoint=False).T
         self.ndata = k1.size
 
