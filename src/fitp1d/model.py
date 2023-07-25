@@ -232,6 +232,22 @@ class ResolutionModel(Model):
         return np.exp(result)
 
 
+class NoiseModel(Model):
+    def __init__(self):
+        super().__init__()
+        self.names = ['eta_noise']
+        self.initial = {'eta_noise': 0}
+        self.param_labels = {'eta_noise': r"\eta_N"}
+        self.boundary = {'eta_noise': (-0.2, 0.2)}
+        self._cached_noise = 0
+
+    def cache(self, p_noise):
+        self._cached_noise = p_noise.copy()
+
+    def getCachedModel(self, **kwargs):
+        return kwargs['eta_noise'] * self._cached_noise
+
+
 class LyaP1DSimpleModel(Model):
     def __init__(self):
         super().__init__()
@@ -257,7 +273,7 @@ class LyaP1DSimpleModel(Model):
         for par in self.names:
             x1, x2 = -100, 100
             if par == "k1":
-                x1 = 1e-6
+                x1, x2 = 1e-6, 2e6
             self.boundary[par] = (x1, x2)
 
         self.nsubk = 20
@@ -423,7 +439,8 @@ class CombinedModel(Model):
         self._models = {
             'lya': LyaP1DArinyoModel(),
             'ion': IonModel(),
-            'reso': ResolutionModel(add_reso_bias, add_var_reso)
+            'reso': ResolutionModel(add_reso_bias, add_var_reso),
+            'noise': NoiseModel()
         }
 
         self._setAttr()
@@ -439,6 +456,9 @@ class CombinedModel(Model):
 
     def setFiducialCorrectionModel(self, *args):
         self._models['fid'] = FiducialCorrectionModel(*args)
+
+    def setNoiseModel(self, p_noise):
+        self._models['noise'].cache(p_noise)
 
     @property
     def ndata(self):
@@ -466,5 +486,6 @@ class CombinedModel(Model):
         result *= self._models['reso'].getCachedModel(**kwargs)
         result = result.reshape(self.ndata, self.nsubk).mean(axis=1)
         result += self._additive_corrections
+        result -= self._models['noise'].getCachedModel(**kwargs)
 
         return result
