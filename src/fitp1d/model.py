@@ -453,6 +453,14 @@ class CombinedModel(Model):
         self._setAttr()
         self._additive_corrections = 0
 
+    @property
+    def ndata(self):
+        return self._models['lya'].ndata
+
+    @property
+    def nsubk(self):
+        return self._models['lya'].nsubk
+
     def useSimpleLyaModel(self):
         self._models['lya'] = LyaP1DSimpleModel()
         self._setAttr()
@@ -464,16 +472,12 @@ class CombinedModel(Model):
     def setFiducialCorrectionModel(self, *args):
         self._models['fid'] = FiducialCorrectionModel(*args)
 
+    def removeFiducialCorrectionModel(self):
+        self._models.pop('fid', None)
+        self._additive_corrections = 0
+
     def setNoiseModel(self, p_noise):
         self._models['noise'].cache(p_noise)
-
-    @property
-    def ndata(self):
-        return self._models['lya'].ndata
-
-    @property
-    def nsubk(self):
-        return self._models['lya'].nsubk
 
     def cache(self, kedges, z):
         self._models['lya'].cache(kedges, z)
