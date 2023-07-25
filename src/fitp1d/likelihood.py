@@ -40,7 +40,6 @@ class P1DLikelihood():
             self.noisedata = PSData(fname_noise)
         else:
             self.noisedata = None
-            self.fixParam("eta_noise")
 
         self._data = None
         self._cov = None
@@ -49,13 +48,16 @@ class P1DLikelihood():
         self._mini.errordef = 1
         self._mini.print_level = 1
 
+        for key, boun in self.boundary.items():
+            self._mini.limits[key] = boun
+
         if use_simple_lya_model:
             self.fixParam("B", 0)
             self.fixParam("beta", 0)
             self.fixParam("k1", 1e6)
 
-        for key, boun in self.boundary.items():
-            self._mini.limits[key] = boun
+        if fname_noise is None:
+            self.fixParam("eta_noise")
 
     def fixParam(self, key, value=None):
         self.free_params = [x for x in self.free_params if x != key]
