@@ -31,6 +31,7 @@ class P1DLikelihood():
         self.free_params = self.names.copy()
         self.initial = self.p1dmodel.initial
         self.boundary = self.p1dmodel.boundary
+        self.prior = self.p1dmodel.prior
         self.param_labels = self.p1dmodel.param_labels
 
         if fname_power is not None:
@@ -118,11 +119,16 @@ class P1DLikelihood():
 
         pmodel = self.p1dmodel.getIntegratedModel(**kwargs)
         diff = pmodel - self._data['p']
+        chi2 = 0
+        for k, s in self.prior.items():
+            chi2 += ((kwargs[k] - self.initial[k]) / s)**2
 
         if self._cov is None:
-            return np.sum(diff**2 * self._invcov)
+            chi2 += np.sum(diff**2 * self._invcov)
+        else:
+            chi2 += diff @ self._invcov @ diff
 
-        return diff @ self._invcov @ diff
+        return chi2
 
     def setPrior(self, gp=5.0):
         centers = self._mini.values.to_dict()
