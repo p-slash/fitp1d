@@ -48,6 +48,7 @@ class Model():
         self.boundary = {}
         self.initial = {}
         self.param_labels = {}
+        self.prior = {}
 
 
 class IonModel(Model):
@@ -196,19 +197,22 @@ class ResolutionModel(Model):
 
         if add_bias:
             self.names.append("b_reso")
-            self.boundary['b_reso'] = (-0.1, 0.1)
+            self.boundary['b_reso'] = (-0.5, 0.5)
             self.initial['b_reso'] = 0
             self.param_labels['b_reso'] = r"b_R"
 
         if add_variance:
             self.names.append("var_reso")
-            self.boundary['var_reso'] = (-0.0001, 0.1)
+            self.boundary['var_reso'] = (-0.0001, 0.5)
             self.initial['var_reso'] = 0
             self.param_labels['var_reso'] = r"\sigma^2_R"
 
         self.rkms = None
         self.kfine = None
         self._cached_model = None
+
+        for k in self.names:
+            self.prior[k] = 0.01
 
     def cache(self, kfine, rkms):
         self.kfine = kfine
@@ -236,9 +240,10 @@ class NoiseModel(Model):
     def __init__(self):
         super().__init__()
         self.names = ['eta_noise']
-        self.initial = {'eta_noise': 0}
-        self.param_labels = {'eta_noise': r"\eta_N"}
-        self.boundary = {'eta_noise': (-0.2, 0.2)}
+        self.initial['eta_noise'] = 0
+        self.param_labels['eta_noise'] = r"\eta_N"
+        self.boundary['eta_noise'] = (-0.2, 0.2)
+        self.prior['eta_noise'] = 0.01
         self._cached_noise = 0
 
     def cache(self, p_noise):
@@ -427,12 +432,14 @@ class CombinedModel(Model):
         self.boundary = {}
         self.initial = {}
         self.param_labels = {}
+        self.prior = {}
 
         for M in self._models.values():
             self.names += M.names
             self.initial |= M.initial
             self.param_labels |= M.param_labels
             self.boundary |= M.boundary
+            self.prior |= M.prior
 
     def __init__(self, add_reso_bias, add_var_reso):
         super().__init__()
