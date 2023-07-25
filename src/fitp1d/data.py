@@ -34,8 +34,6 @@ class PSData():
 
     k1, k2 : optional, np.array(double)
     cov : after setCovariance
-    pd13_args : after setPD13params
-        Fiducial power parameters that goes into PD13 fit
     """
 
     def __init__(self, fname, fmt=None):
@@ -48,10 +46,13 @@ class PSData():
 
         kkey, zkey, pkey, ekey = _findAcceptedKeys(power_table.keys())
 
-        self.k = np.array(power_table[kkey], dtype=np.double)
-        self.z = np.array(power_table[zkey], dtype=np.double)
-        self.p = np.array(power_table[pkey], dtype=np.double)
-        self.e = np.array(power_table[ekey], dtype=np.double)
+        self.k = np.array(power_table[kkey], dtype=float)
+        self.z = np.array(power_table[zkey], dtype=float)
+        self.p = np.array(power_table[pkey], dtype=float)
+        self.e = np.array(power_table[ekey], dtype=float)
+
+        if "p_noise" in power_table.keys():
+            self.p_noise = np.array(power_table["p_noise"], dtype=float)
 
         self.z_bins = np.unique(self.z)
         self.nz = self.z_bins.size
@@ -59,14 +60,13 @@ class PSData():
 
         # Read k edges
         if 'k1' in power_table.keys() and 'k2' in power_table.keys():
-            self.k1 = np.array(power_table['k1'], dtype=np.double)
-            self.k2 = np.array(power_table['k2'], dtype=np.double)
+            self.k1 = np.array(power_table['k1'], dtype=float)
+            self.k2 = np.array(power_table['k2'], dtype=float)
         else:
             self.k1 = self.k2 = None
 
         self.cov = None
         self.reso_tbl = None
-        self.pd13_args = None
 
     def trim(self, kmin=0, kmax=10, zmin=0, zmax=10):
         keep = (self.k > kmin) & (self.k < kmax)
@@ -101,10 +101,7 @@ class PSData():
     def getResolution(self, z):
         return np.interp(z, self.reso_tbl['z'], self.reso_tbl['R'])
 
-    def setPD13params(self, *args):
-        self.pd13_args = args
-
-    def getZBinVals(self, z, kmin=0, kmax=10):
+    def getZBinVals(self, z, kmin=0, kmax=10, get_pnoise=False, k2match=None):
         w = np.isclose(self.z, z)
         w &= (self.k >= kmin) & (self.k <= kmax) & (self.e > 0)
 
@@ -112,7 +109,10 @@ class PSData():
             w.sum(), dtype=[('k', 'f8'), ('p', 'f8'), ('e', 'f8')])
 
         result['k'] = self.k[w]
-        result['p'] = self.p[w]
+        if get_pnoise:
+            result['p'] = self.p_noise[w]
+        else:
+            result['p'] = self.p[w]
         result['e'] = self.e[w]
         kedges = (self.k1[w], self.k2[w])
 
@@ -120,5 +120,15 @@ class PSData():
             cov = self.cov[:, w][w, :]
         else:
             cov = None
+
+        if k2match is not None:
+            idx = np.intersect1d(
+                result['k'], k2match, assume_unique=True, return_indices=True
+            )[1]
+
+            result = result[idx]
+            kedges = (kedges[0][idx], kedges[1][idx])
+            if cov is not None:
+                cov = cov[:, idx][idx, :]
 
         return result, kedges, cov
