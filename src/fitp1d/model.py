@@ -284,6 +284,27 @@ class LyaP1DSimpleModel(Model):
         return result
 
 
+class FiducialCorrectionModel(LyaP1DSimpleModel):
+    def __init__(self, *args):
+        super().__init__()
+        self.initial = {par: args[i] for i, par in enumerate(self.names)}
+        self.args = args
+        self._cached_corr = 0
+
+    def cache(self, kedges, z):
+        super().cache(kedges, z)
+        k1, k2 = kedges
+        kcenter = (k1 + k2) / 2
+
+        self._cached_corr = evaluatePD13Lorentz(
+            self.kfine, self.z, *self.args
+        ).reshape(self.ndata, self.nsubk).mean(axis=1)
+        self._cached_corr -= evaluatePD13Lorentz(kcenter, self.z, *self.args)
+
+    def getCachedModel(self):
+        return self._cached_corr
+
+
 class LyaP1DArinyoModel(Model):
     def __init__(self):
         super().__init__()
@@ -406,6 +427,18 @@ class CombinedModel(Model):
         }
 
         self._setAttr()
+        self._additive_corrections = 0
+
+    def useSimpleLyaModel(self):
+        self._models['lya'] = LyaP1DSimpleModel()
+        self._setAttr()
+
+    def useArinyoLyaModel(self):
+        self._models['lya'] = LyaP1DArinyoModel()
+        self._setAttr()
+
+    def setFiducialCorrectionModel(self, *args):
+        self._models['fid'] = FiducialCorrectionModel(*args)
 
     @property
     def ndata(self):
@@ -423,10 +456,15 @@ class CombinedModel(Model):
         rkms = LIGHT_SPEED * 0.8 / (1 + z) / LYA_WAVELENGTH
         self._models['reso'].cache(kfine, rkms)
 
+        if 'fid' in self._models:
+            self._models['fid'].cache(kedges, z)
+            self._additive_corrections = self._models['fid'].getCachedModel()
+
     def getIntegratedModel(self, **kwargs):
         result = self._models['lya'].getCachedModel(**kwargs)
         result *= self._models['ion'].getCachedModel(**kwargs)
         result *= self._models['reso'].getCachedModel(**kwargs)
         result = result.reshape(self.ndata, self.nsubk).mean(axis=1)
+        result += self._additive_corrections
 
         return result
