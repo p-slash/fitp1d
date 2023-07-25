@@ -37,3 +37,22 @@ def plotCornerSamples(
 
     if show:
         plt.show()
+
+
+def plotFitNData(likeli, show=True):
+    data = likeli._data
+    k = data['k']
+    plt.errorbar(
+        k, data['p'] * k / np.pi, data['e'] * k / np.pi,
+        fmt='o', capsize=2)
+    fit = likeli._mini.values.to_dict()
+    model = likeli.p1dmodel.getIntegratedModel(**fit)
+
+    plt.plot(data['k'], model * k / np.pi, 'k-')
+    plt.xscale("log")
+    plt.yscale("log")
+    plt.grid(True)
+    plt.ylabel(r"$kP/\pi$", fontsize=16)
+    plt.xlabel(r"$k$ [s km$^{-1}$]", fontsize=16)
+    if show:
+        plt.show()
