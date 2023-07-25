@@ -39,7 +39,7 @@ class P1DLikelihood():
         self._mini.errordef = 1
         self._mini.print_level = 1
 
-        for key, boun in self.boundary:
+        for key, boun in self.boundary.items():
             self._mini.limits[key] = boun
 
         # self.fixParam("B", 0)
@@ -105,16 +105,14 @@ class P1DLikelihood():
 
         return diff @ self._invcov @ diff
 
-    def setPrior(self, gp=6.0):
+    def setPrior(self, gp=5.0):
         centers = self._mini.values.to_dict()
         sigmas = self._mini.errors.to_dict()
 
         for i, par in enumerate(self.names):
-            x1 = centers[par] - gp * sigmas[par]
-            x2 = centers[par] + gp * sigmas[par]
+            x1 = max(self.boundary[par][0], centers[par] - gp * sigmas[par])
+            x2 = min(self.boundary[par][1], centers[par] + gp * sigmas[par])
 
-            if par == 'k1':
-                x1 = max(1e-6, x1)
             self.boundary[par] = (x1, x2)
 
     def logPrior(self, *args):

@@ -323,7 +323,7 @@ class LyaP1DArinyoModel(Model):
 
         self.z = None
         self._p3dlin = None
-        self.kfine_skm = None
+        self.kfine = None
         self._k1d_Mpc = None
         self._k3d = None
         self._mu = None
@@ -333,12 +333,12 @@ class LyaP1DArinyoModel(Model):
     def cache(self, kedges, z):
         assert isinstance(kedges, tuple)
         k1, k2 = kedges
-        self.z = z
         if self.z is not None and np.isclose(self.z, z):
             return
 
         self.kfine = np.linspace(k1, k2, self.nsubk, endpoint=False).T
         self.ndata = k1.size
+        self.z = z
 
         import camb
         from astropy.cosmology import Planck18
