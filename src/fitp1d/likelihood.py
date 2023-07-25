@@ -19,9 +19,12 @@ class P1DLikelihood():
 
     def __init__(
             self, add_reso_bias, add_var_reso,
+            use_simple_lya_model=False,
             fname_power=None, fname_cov=None, cov=None
     ):
         self.p1dmodel = CombinedModel(add_reso_bias, add_var_reso)
+        if use_simple_lya_model:
+            self.p1dmodel.useSimpleLyaModel()
 
         self.names = self.p1dmodel.names
         self.free_params = self.names.copy()
