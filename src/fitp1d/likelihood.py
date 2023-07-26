@@ -48,7 +48,7 @@ class P1DLikelihood():
         if use_simple_lya_model:
             self.fixParam("B", 0)
             self.fixParam("beta", 0)
-            self.fixParam("k1", 1e6)
+            self.fixParam("k1", np.inf)
 
     @property
     def free_params(self):
