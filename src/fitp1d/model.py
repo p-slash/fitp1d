@@ -6,6 +6,8 @@ from scipy.interpolate import CubicSpline
 LYA_WAVELENGTH = 1215.67
 LIGHT_SPEED = 299792.458
 
+_NSUB_K_ = 5
+
 PDW_FIT_AMP = 7.63089e-02
 PDW_FIT_N = -2.52054e+00
 PDW_FIT_APH = -1.27968e-01
@@ -140,10 +142,10 @@ class IonModel(Model):
         self._setOneionA2Terms()
         self._setTwoionA2Terms()
 
-    def integrate(self, kedges, nsubk=20):
+    def integrate(self, kedges):
         k1, k2 = kedges
         nkbins = k1.size
-        self.kfine = np.linspace(k1, k2, nsubk, endpoint=False).T
+        self.kfine = np.linspace(k1, k2, _NSUB_K_, endpoint=False).T
 
         self._integrated_model['const_a2'] = self._splines['const_a2'].copy()
         self._integrated_model['linear_a'] = {}
@@ -152,7 +154,7 @@ class IonModel(Model):
 
         for term in ['linear_a', 'oneion_a2', 'twoion_a2']:
             for ionkey, interp in self._splines[term].items():
-                v = interp(self.kfine).reshape(nkbins, nsubk).mean(axis=1)
+                v = interp(self.kfine).reshape(nkbins, _NSUB_K_).mean(axis=1)
                 self._integrated_model[term][ionkey] = v
 
     def getCachedModel(self, **kwargs):
@@ -281,7 +283,6 @@ class LyaP1DSimpleModel(Model):
                 x1, x2 = 1e-6, 2e6
             self.boundary[par] = (x1, x2)
 
-        self.nsubk = 20
         self.z = None
         self.kfine = None
         self.ndata = None
@@ -290,7 +291,7 @@ class LyaP1DSimpleModel(Model):
         assert isinstance(kedges, tuple)
         k1, k2 = kedges
         self.z = z
-        self.kfine = np.linspace(k1, k2, self.nsubk, endpoint=False).T
+        self.kfine = np.linspace(k1, k2, _NSUB_K_, endpoint=False).T
         self.ndata = k1.size
 
     def getCachedModel(self, **kwargs):
@@ -319,7 +320,7 @@ class FiducialCorrectionModel(LyaP1DSimpleModel):
 
         self._cached_corr = evaluatePD13Lorentz(
             self.kfine, self.z, *self.args
-        ).reshape(self.ndata, self.nsubk).mean(axis=1)
+        ).reshape(self.ndata, _NSUB_K_).mean(axis=1)
         self._cached_corr -= evaluatePD13Lorentz(kcenter, self.z, *self.args)
 
     def getCachedModel(self):
@@ -358,7 +359,6 @@ class LyaP1DArinyoModel(Model):
             'kp': (1., 50.)
         }
 
-        self.nsubk = 20
         self._kperp, self._dlnkperp = np.linspace(-4, 3, 1000, retstep=True)
         self._kperp = np.exp(self._kperp)[:, np.newaxis, np.newaxis]
         self._kperp2pi = self._kperp**2 / (2 * np.pi)
@@ -374,11 +374,12 @@ class LyaP1DArinyoModel(Model):
 
     def cache(self, kedges, z):
         assert isinstance(kedges, tuple)
-        k1, k2 = kedges
+
         if self.z is not None and np.isclose(self.z, z):
             return
 
-        self.kfine = np.linspace(k1, k2, self.nsubk, endpoint=False).T
+        k1, k2 = kedges
+        self.kfine = np.linspace(k1, k2, _NSUB_K_, endpoint=False).T
         self.ndata = k1.size
         self.z = z
 
@@ -459,7 +460,7 @@ class CombinedModel(Model):
 
     @property
     def nsubk(self):
-        return self._models['lya'].nsubk
+        return _NSUB_K_
 
     def useSimpleLyaModel(self):
         self._models['lya'] = LyaP1DSimpleModel()
@@ -495,7 +496,7 @@ class CombinedModel(Model):
         result = self._models['lya'].getCachedModel(**kwargs)
         result *= self._models['ion'].getCachedModel(**kwargs)
         result *= self._models['reso'].getCachedModel(**kwargs)
-        result = result.reshape(self.ndata, self.nsubk).mean(axis=1)
+        result = result.reshape(self.ndata, _NSUB_K_).mean(axis=1)
         result += self._additive_corrections
         result -= self._models['noise'].getCachedModel(**kwargs)
 
