@@ -32,6 +32,7 @@ def plotCornerSamples(
         contour_colors=contour_colors,
         legend_loc='upper right'
     )
+
     if ofname:
         plt.savefig(ofname, dpi=150, bbox_inches='tight')
 
@@ -39,7 +40,7 @@ def plotCornerSamples(
         plt.show()
 
 
-def plotFitNData(likeli, show=True):
+def plotFitNData(likeli, ofname=None, show=True):
     data = likeli._data
     k = data['kc']
     plt.errorbar(
@@ -51,8 +52,13 @@ def plotFitNData(likeli, show=True):
     plt.plot(k, model * k / np.pi, 'k-')
     plt.xscale("log")
     plt.yscale("log")
-    plt.grid(True)
+    plt.grid(True, "major")
+    plt.grid(True, "minor", linestyle=':', linewidth=1)
     plt.ylabel(r"$kP/\pi$", fontsize=16)
     plt.xlabel(r"$k$ [s km$^{-1}$]", fontsize=16)
+
+    if ofname:
+        plt.savefig(ofname, dpi=150, bbox_inches='tight')
+
     if show:
         plt.show()
