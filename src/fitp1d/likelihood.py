@@ -3,44 +3,37 @@ import emcee
 import iminuit
 from getdist import MCSamples
 
-from fitp1d.data import PSData
-from fitp1d.model import CombinedModel
+from fitp1d.data import DetailedData
+import fitp1d.model
 
 
 class P1DLikelihood():
     def readData(self, fname_power, fname_cov=None, cov=None):
-        self.psdata = PSData(fname_power)
+        self.psdata = DetailedData(fname_power)
         self.ndata = self.psdata.size
 
         if fname_cov:
-            self.psdata.readCovariance(fname_cov)
+            self.psdata.readCovariance(fname_cov, skiprows=0)
         elif cov is not None:
-            self.psdata.cov = cov.copy()
+            self.psdata.setCovariance(cov)
 
     def __init__(
-            self, add_reso_bias, add_var_reso,
-            use_simple_lya_model=False,
-            fname_power=None, fname_cov=None, cov=None,
-            fname_noise=None
+            self, fname_power, use_simple_lya_model=False,
+            fname_cov=None, cov=None
     ):
-        self.p1dmodel = CombinedModel(add_reso_bias, add_var_reso)
+        self.readData(fname_power, fname_cov, cov)
+
+        self.p1dmodel = fitp1d.model.CombinedModel(
+            self.psdata.data_table.dtype.names)
         if use_simple_lya_model:
             self.p1dmodel.useSimpleLyaModel()
 
         self.names = self.p1dmodel.names
-        self.free_params = self.names.copy()
+        self.fixed_params = []
         self.initial = self.p1dmodel.initial
         self.boundary = self.p1dmodel.boundary
         self.prior = self.p1dmodel.prior
         self.param_labels = self.p1dmodel.param_labels
-
-        if fname_power is not None:
-            self.readData(fname_power, fname_cov, cov)
-
-        if fname_noise is not None:
-            self.noisedata = PSData(fname_noise)
-        else:
-            self.noisedata = None
 
         self._data = None
         self._cov = None
@@ -57,11 +50,12 @@ class P1DLikelihood():
             self.fixParam("beta", 0)
             self.fixParam("k1", 1e6)
 
-        if fname_noise is None:
-            self.fixParam("eta_noise")
+    @property
+    def free_params(self):
+        return [x for x in self.names if x not in self.fixed_params]
 
     def fixParam(self, key, value=None):
-        self.free_params = [x for x in self.free_params if x != key]
+        self.fixed_params.append(key)
 
         self._mini.fixed[key] = True
         if value is not None:
@@ -69,7 +63,7 @@ class P1DLikelihood():
 
     def releaseParam(self, key):
         self._mini.fixed[key] = False
-        self.free_params.append(key)
+        self.fixed_params.remove(key)
 
     def sample(self, label, nwalkers=32, nsamples=20000):
         ndim = len(self.free_params)
@@ -94,19 +88,22 @@ class P1DLikelihood():
 
         return samples
 
-    def fitDataBin(self, z, kmin=0, kmax=10):
-        self._data, kedges, self._cov = self.psdata.getZBinVals(z, kmin, kmax)
+    def fitDataBin(self, z, kmin=5e-4, kmax=None):
+        if kmax is None:
+            rkms = (
+                fitp1d.model.LIGHT_SPEED * 0.8
+                / (1 + z) / fitp1d.model.LYA_WAVELENGTH
+            )
+            kmax = np.pi / rkms / 2
+
+        self._data, self._cov = self.psdata.getZBinVals(z, kmin, kmax)
         if self._cov is None:
-            self._invcov = self._data['e']**-2
+            self._invcov = self._data['e_stat']**-2
         else:
             self._invcov = np.linalg.inv(self._cov)
 
-        self.p1dmodel.cache(kedges, z)
-        if self.noisedata:
-            ndat = self.noisedata.getZBinVals(
-                z, kmin, kmax, get_pnoise=True, k2match=self._data['k']
-            )[0]
-            self.p1dmodel.setNoiseModel(ndat['p'])
+        kedges = (self._data['k1'], self._data['k2'])
+        self.p1dmodel.cache(kedges, z, self._data)
 
         print(self._mini.migrad())
 
@@ -118,7 +115,7 @@ class P1DLikelihood():
         kwargs = {par: args[i] for i, par in enumerate(self.names)}
 
         pmodel = self.p1dmodel.getIntegratedModel(**kwargs)
-        diff = pmodel - self._data['p']
+        diff = pmodel - self._data['p_final']
         chi2 = 0
         for k, s in self.prior.items():
             chi2 += ((kwargs[k] - self.initial[k]) / s)**2
