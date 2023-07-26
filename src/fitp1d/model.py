@@ -255,6 +255,24 @@ class NoiseModel(Model):
         return kwargs['eta_noise'] * self._cached_noise
 
 
+class ScalingSystematicsModel(Model):
+    def __init__(self, label):
+        super().__init__()
+        self.name = f'{label}_bias'
+        self.names = [self.name]
+        self.initial[self.name] = 0
+        self.param_labels[self.name] = r"\eta_\mathrm{"f"{label}""}"
+        self.boundary[self.name] = (-5, 5)
+        self.prior[self.name] = 1
+        self._cached_power = 0
+
+    def cache(self, p_scale):
+        self._cached_power = p_scale.copy()
+
+    def getCachedModel(self, **kwargs):
+        return kwargs[self.name] * self._cached_power
+
+
 class LyaP1DSimpleModel(Model):
     def __init__(self):
         super().__init__()
@@ -442,14 +460,23 @@ class CombinedModel(Model):
             self.boundary |= M.boundary
             self.prior |= M.prior
 
-    def __init__(self, add_reso_bias, add_var_reso):
+    def __init__(self, syst_dtype_names):
         super().__init__()
         self._models = {
             'lya': LyaP1DArinyoModel(),
             'ion': IonModel(),
-            'reso': ResolutionModel(add_reso_bias, add_var_reso),
-            'noise': NoiseModel()
+            # 'reso': ResolutionModel(add_reso_bias, add_var_reso),
+            # 'noise': NoiseModel()
         }
+
+        self._syst_models = []
+
+        for name in syst_dtype_names:
+            if not name.endswith("_syst"):
+                continue
+            label = name[2:name.rfind("_syst")]
+            self._models[f'{label}_syst'] = ScalingSystematicsModel(label)
+            self._syst_models.append(f'{label}_syst')
 
         self._setAttr()
         self._additive_corrections = 0
@@ -477,27 +504,32 @@ class CombinedModel(Model):
         self._models.pop('fid', None)
         self._additive_corrections = 0
 
-    def setNoiseModel(self, p_noise):
-        self._models['noise'].cache(p_noise)
+    # def setNoiseModel(self, p_noise):
+    #     self._models['noise'].cache(p_noise)
 
-    def cache(self, kedges, z):
+    def cache(self, kedges, z, data):
         self._models['lya'].cache(kedges, z)
         kfine = self._models['lya'].kfine
         self._models['ion'].cache(kfine)
 
-        rkms = LIGHT_SPEED * 0.8 / (1 + z) / LYA_WAVELENGTH
-        self._models['reso'].cache(kfine, rkms)
+        # rkms = LIGHT_SPEED * 0.8 / (1 + z) / LYA_WAVELENGTH
+        # self._models['reso'].cache(kfine, rkms)
 
         if 'fid' in self._models:
             self._models['fid'].cache(kedges, z)
             self._additive_corrections = self._models['fid'].getCachedModel()
 
+        for name in self._syst_models:
+            self._models[name].cache(data[f'e_{name}'])
+
     def getIntegratedModel(self, **kwargs):
         result = self._models['lya'].getCachedModel(**kwargs)
         result *= self._models['ion'].getCachedModel(**kwargs)
-        result *= self._models['reso'].getCachedModel(**kwargs)
+        # result *= self._models['reso'].getCachedModel(**kwargs)
         result = result.reshape(self.ndata, _NSUB_K_).mean(axis=1)
         result += self._additive_corrections
-        result -= self._models['noise'].getCachedModel(**kwargs)
+        for name in self._syst_models:
+            m = self._models[name]
+            result -= m.getCachedModel(**kwargs)
 
         return result

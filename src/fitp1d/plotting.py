@@ -41,14 +41,14 @@ def plotCornerSamples(
 
 def plotFitNData(likeli, show=True):
     data = likeli._data
-    k = data['k']
+    k = data['kc']
     plt.errorbar(
-        k, data['p'] * k / np.pi, data['e'] * k / np.pi,
+        k, data['p_final'] * k / np.pi, data['e_total'] * k / np.pi,
         fmt='o', capsize=2)
     fit = likeli._mini.values.to_dict()
     model = likeli.p1dmodel.getIntegratedModel(**fit)
 
-    plt.plot(data['k'], model * k / np.pi, 'k-')
+    plt.plot(k, model * k / np.pi, 'k-')
     plt.xscale("log")
     plt.yscale("log")
     plt.grid(True)
