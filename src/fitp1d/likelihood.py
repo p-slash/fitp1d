@@ -34,6 +34,8 @@ class P1DLikelihood():
         self.boundary = self.p1dmodel.boundary
         self.prior = self.p1dmodel.prior
         self.param_labels = self.p1dmodel.param_labels
+        self._new_args = np.empty(len(self.names))
+        self._free_idx = list(np.arange(self._new_args.size))
 
         self._data = None
         self._cov = None
@@ -56,14 +58,21 @@ class P1DLikelihood():
 
     def fixParam(self, key, value=None):
         self.fixed_params.append(key)
+        idx = self.names.index(key)
+        self._free_idx.remove(idx)
 
         self._mini.fixed[key] = True
         if value is not None:
             self._mini.values[key] = value
 
+        self._new_args[idx] = self._mini.values[key]
+
     def releaseParam(self, key):
         self._mini.fixed[key] = False
         self.fixed_params.remove(key)
+        idx = self.names.index(key)
+        self._free_idx.append(idx)
+        self._free_idx.sort()
 
     def sample(self, label, nwalkers=32, nsamples=20000):
         ndim = len(self.free_params)
@@ -71,7 +80,7 @@ class P1DLikelihood():
 
         rshift = 1e-4 * np.random.default_rng().normal(size=(nwalkers, ndim))
         p0 = self._mini.values[self.free_params] + rshift
-        self.setPrior()
+        self.resetBoundary()
 
         _ = sampler.run_mcmc(p0, nsamples, progress=True)
 
@@ -127,7 +136,7 @@ class P1DLikelihood():
 
         return chi2
 
-    def setPrior(self, gp=5.0):
+    def resetBoundary(self, gp=5.0):
         centers = self._mini.values.to_dict()
         sigmas = self._mini.errors.to_dict()
 
@@ -137,27 +146,13 @@ class P1DLikelihood():
 
             self.boundary[par] = (x1, x2)
 
-    def logPrior(self, *args):
+    def likelihood(self, args):
         for i, par in enumerate(self.free_params):
             x1, x2 = self.boundary[par]
 
             if args[i] < x1 or args[i] > x2:
                 return -np.inf
 
-        return 0.
+        self._new_args[self._free_idx] = args
 
-    def likelihood(self, args):
-        lp = self.logPrior(*args)
-        if not np.isfinite(lp):
-            return -np.inf
-
-        new_args = []
-        j = 0
-        for par in self.names:
-            if par in self.free_params:
-                new_args.append(args[j])
-                j += 1
-            else:
-                new_args.append(self._mini.values[par])
-
-        return -0.5 * self.chi2(*new_args)
+        return -0.5 * self.chi2(*self._new_args)
