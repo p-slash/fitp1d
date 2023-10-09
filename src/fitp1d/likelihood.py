@@ -97,7 +97,7 @@ class P1DLikelihood():
 
         return samples
 
-    def fitDataBin(self, z, kmin=5e-4, kmax=None):
+    def fitDataBin(self, z, kmin=5e-4, kmax=None, print_info=False):
         if kmax is None:
             rkms = (
                 fitp1d.model.LIGHT_SPEED * 0.8
@@ -114,11 +114,13 @@ class P1DLikelihood():
         kedges = (self._data['k1'], self._data['k2'])
         self.p1dmodel.cache(kedges, z, self._data)
 
-        print(self._mini.migrad())
+        self._mini.migrad()
 
-        chi2 = self._mini.fval
-        ndof = self._data.size - self._mini.nfit
-        print(f"Chi2 / dof= {chi2:.1f} / {ndof:d}")
+        if print_info:
+            chi2 = self._mini.fval
+            ndof = self._data.size - self._mini.nfit
+            print(f"Chi2 / dof= {chi2:.1f} / {ndof:d}")
+            print(self._mini)
 
     def chi2(self, *args):
         kwargs = {par: args[i] for i, par in enumerate(self.names)}
