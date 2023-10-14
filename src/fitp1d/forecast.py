@@ -366,6 +366,8 @@ class P1DLikelihood2():
                 generate_direction=generate_mixture_random_direction,
             )
 
+        sampler.run(min_num_live_points=nlive)
+
         if mpi_rank == 0:
             sampler.print_results()
             sampler.plot()

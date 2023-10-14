@@ -31,12 +31,13 @@ def main():
     comm = MPI.COMM_WORLD
     mpi_rank = comm.Get_rank()
 
-    args = getParser.parse_args()
+    args = getParser().parse_args()
 
     fpl = fitp1d.forecast.P1DLikelihood2(
         args.InputQMLEFile, fname_cov=args.InputCovFile,
     )
     fpl.setFiducial()
+    fpl.setMinimizer()
 
     # No cosmology fit
     for c in fpl.p1dmodel._cosmo_names:
