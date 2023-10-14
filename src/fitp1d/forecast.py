@@ -57,12 +57,12 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
 
         self.boundary = {
             'blya_A': (-1, 0), 'blya_n': (0, 5),
-            'beta_A': (0.5, 2.5), 'beta_n': (-5, -1),
-            'q1': (0.1, 5.),
+            'beta_A': (0.5, 3.0), 'beta_n': (-5, -1),
+            'q1': (0.0, 5.),
             'kv': (0., 5.),
-            'av': (0.1, 5.),
+            'av': (0.0, 5.),
             'bv': (0.1, 5.),
-            'kp_A': (0., 200.), 'kp_n': (-1.5, 0),
+            'kp_A': (0., 200.), 'kp_n': (-2.0, 0.1),
             'ln10As': (2., 4.),
             'ns': (0.94, 1.),
             'mnu': (0., 100.),
@@ -255,6 +255,10 @@ class P1DLikelihood2():
         for key, boun in self.boundary.items():
             self._mini.limits[key] = boun
 
+        for key in self.fixed_params:
+            self._mini.fixed[key] = True
+            self._mini.values[key] = self.initial[key]
+
     def resetBoundary(self, gp=5.0):
         centers = self._mini.values.to_dict()
         sigmas = self._mini.errors.to_dict()
@@ -307,9 +311,13 @@ class P1DLikelihood2():
             print(f"Chi2 / dof= {chi2:.1f} / {ndof:d}")
             print(self._mini)
 
-    def sample(self, label, nwalkers=32, nsamples=20000):
+    def sample(
+            self, label, nwalkers=32, nsamples=20000, discard=1000, thin=10,
+            check_autocorr=False, pool=None
+    ):
         ndim = len(self.free_params)
-        sampler = emcee.EnsembleSampler(nwalkers, ndim, self.likelihood)
+        sampler = emcee.EnsembleSampler(
+            nwalkers, ndim, self.likelihood, pool=pool)
 
         rshift = 1e-4 * np.random.default_rng().normal(size=(nwalkers, ndim))
         p0 = self._mini.values[self.free_params] + rshift
@@ -317,11 +325,12 @@ class P1DLikelihood2():
 
         _ = sampler.run_mcmc(p0, nsamples, progress=True)
 
-        tau = sampler.get_autocorr_time()
-        print("Auto correlations:", tau)
+        if check_autocorr:
+            tau = sampler.get_autocorr_time()
+            print("Auto correlations:", tau)
 
         samples = MCSamples(
-            samples=sampler.get_chain(discard=1000, thin=15, flat=True),
+            samples=sampler.get_chain(discard=discard, thin=thin, flat=True),
             names=self.free_params, label=label
         )
 
@@ -329,3 +338,35 @@ class P1DLikelihood2():
             [self.param_labels[_] for _ in self.free_params])
 
         return samples
+
+    def sampleUnest(
+            self, log_dir, use_slice=True, nlive=200, slice_steps=50,
+            resume='resume', mpi_rank=0
+    ):
+        from ultranest import ReactiveNestedSampler
+        from ultranest.stepsampler import (
+            SliceSampler, generate_mixture_random_direction)
+
+        def _uniform(c, x1, x2):
+            return c * (x2 - x1) + x1
+
+        def _prior_transform(cube):
+            params = cube.copy()
+            for i, key in enumerate(self.free_params):
+                params[i] = _uniform(cube[i], *self.boundary[key])
+            return params
+
+        sampler = ReactiveNestedSampler(
+            self.free_params, self.likelihood, _prior_transform,
+            log_dir=log_dir, resume=resume)
+
+        if use_slice:
+            sampler.stepsampler = SliceSampler(
+                nsteps=slice_steps,
+                generate_direction=generate_mixture_random_direction,
+            )
+
+        if mpi_rank == 0:
+            sampler.print_results()
+            sampler.plot()
+            sampler.plot_trace()
