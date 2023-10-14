@@ -377,7 +377,7 @@ class LyaP1DArinyoModel(Model):
             'kp': (1., 50.)
         }
 
-        self._kperp, self._dlnkperp = np.linspace(-4, 3, 1000, retstep=True)
+        self._kperp, self._dlnkperp = np.linspace(-4, 3, 700, retstep=True)
         self._kperp = np.exp(self._kperp)[:, np.newaxis, np.newaxis]
         self._kperp2pi = self._kperp**2 / (2 * np.pi)
 
