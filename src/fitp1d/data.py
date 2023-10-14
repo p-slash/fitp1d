@@ -58,3 +58,25 @@ class DetailedData():
             cov = None
 
         return result, cov
+
+    def getZBinAsList(self, kmin=0, kmax=10):
+        w = (self.data_table['kc'] >= kmin) & (self.data_table['kc'] <= kmax)
+        w &= (self.data_table['e_total'] > 0)
+
+        this_data = self.data_table[w]
+        if self.cov is not None:
+            cov = self.cov[:, w][w, :]
+        else:
+            cov = None
+
+        zbins = np.unique(this_data['z'])
+        output_power = []
+        output_cov = []
+
+        for zb in zbins:
+            w2 = np.isclose(zb, this_data['z'])
+            output_power.append(this_data[w2])
+            if cov is not None:
+                output_cov.append(cov[:, w2][w2, :])
+
+        return zbins, output_power, output_cov
