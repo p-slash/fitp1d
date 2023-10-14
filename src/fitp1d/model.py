@@ -406,7 +406,10 @@ class LyaP1DArinyoModel(Model):
 
         camb_params = camb.set_params(
             redshifts=[z],
-            WantTransfer=True, kmax=1e4,
+            WantCls=False, WantScalars=False,
+            WantTensors=False, WantVectors=False,
+            WantDerivedParameters=False,
+            WantTransfer=True, kmax=20,
             omch2=Planck18.Odm0 * Planck18.h**2,
             ombh2=Planck18.Ob0 * Planck18.h**2,
             omk=0.,
