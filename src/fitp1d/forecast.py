@@ -56,16 +56,16 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
         }
 
         self.boundary = {
-            'blya_A': (-1, 0), 'blya_n': (0, 5),
-            'beta_A': (0.5, 3.0), 'beta_n': (-5, -1),
-            'q1': (0.0, 5.),
-            'kv': (0., 5.),
-            'av': (0.0, 5.),
-            'bv': (0.1, 5.),
-            'kp_A': (0., 200.), 'kp_n': (-2.0, 0.1),
+            'blya_A': (-1, 0), 'blya_n': (1.5, 5),
+            'beta_A': (0.5, 3.0), 'beta_n': (-3, -1),
+            'q1': (0.0, 1.),
+            'kv': (0., 1.),
+            'av': (0.0, 1.),
+            'bv': (0., 2.0),
+            'kp_A': (0., 200.), 'kp_n': (-2.0, 0.5),
             'ln10As': (2., 4.),
             'ns': (0.94, 1.),
-            'mnu': (0., 100.),
+            'mnu': (0., 50.),
             'Ode0': (0.5, 0.9),
             'H0': (50., 100.)
         }
@@ -301,6 +301,10 @@ class P1DLikelihood2():
         idx = self.names.index(key)
         self._free_idx.append(idx)
         self._free_idx.sort()
+
+    def releaseAll(self):
+        for key in self.fixed_params:
+            self.releaseParam(key)
 
     def fit(self, print_info=True):
         self._mini.migrad()

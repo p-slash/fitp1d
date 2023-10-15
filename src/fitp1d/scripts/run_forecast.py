@@ -17,8 +17,8 @@ def getParser():
     parser.add_argument("-o", "--output-dir", help="Output directory.")
     parser.add_argument("--slice", action='store_true')
     parser.add_argument(
-        "--nlive", help="Number of live points", type=int, default=250)
-    parser.add_argument("--slice-steps", type=int, default=20)
+        "--nlive", help="Number of live points", type=int, default=128)
+    parser.add_argument("--slice-steps", type=int, default=16)
     parser.add_argument(
         "--resume", default='resume', help="To resume or no.",
         choices=['resume', 'resume-similar', 'overwrite', 'subfolder']
@@ -27,9 +27,25 @@ def getParser():
     return parser
 
 
+def oneSample(fpl, label, fixed_params, args, comm):
+    mpi_rank = comm.Get_rank()
+
+    fpl.releaseAll()
+    fpl.setMinimizer()
+    for c in fixed_params:
+        fpl.fixParam(c, fpl.initial[c])
+
+    log_dir = f"{args.output_dir}/{label}"
+    fpl.sampleUnest(
+        log_dir, use_slice=args.slice, nlive=args.nlive,
+        slice_steps=args.slice_steps, resume=args.resume, mpi_rank=mpi_rank
+    )
+
+    comm.Barrier()
+
+
 def main():
     comm = MPI.COMM_WORLD
-    mpi_rank = comm.Get_rank()
 
     args = getParser().parse_args()
 
@@ -37,37 +53,18 @@ def main():
         args.InputQMLEFile, fname_cov=args.InputCovFile,
     )
     fpl.setFiducial()
-    fpl.setMinimizer()
 
-    # No cosmology fit
-    for c in fpl.p1dmodel._cosmo_names:
-        fpl.fixParam(c, fpl.initial[c])
-
-    log_dir = f"{args.output_dir}/no_cosmology"
-    fpl.sampleUnest(
-        log_dir, use_slice=args.slice, nlive=args.nlive,
-        slice_steps=args.slice_steps, resume=args.resume, mpi_rank=mpi_rank
+    oneSample(
+        fpl, "no_cosmology", fpl.p1dmodel._cosmo_names + ["kp_A", "kp_n"],
+        args, comm
     )
 
-    # As, mnu
-    for c in fpl.fixed_params:
-        fpl.releaseParam(c)
-
-    fpl.fixParam("ns", fpl.initial['ns'])
-    fpl.fixParam("Ode0", fpl.initial['Ode0'])
-    fpl.fixParam("H0", fpl.initial['H0'])
-    log_dir = f"{args.output_dir}/as_mnu"
-    fpl.sampleUnest(
-        log_dir, use_slice=args.slice, nlive=args.nlive,
-        slice_steps=args.slice_steps, resume=args.resume, mpi_rank=mpi_rank
+    oneSample(
+        fpl, "as_mnu", ["ns", "Ode0", "H0", "kp_A", "kp_n"],
+        args, comm
     )
 
-    # All
-    for c in fpl.fixed_params:
-        fpl.releaseParam(c)
-
-    log_dir = f"{args.output_dir}/all_free"
-    fpl.sampleUnest(
-        log_dir, use_slice=args.slice, nlive=args.nlive,
-        slice_steps=args.slice_steps, resume=args.resume, mpi_rank=mpi_rank
+    oneSample(
+        fpl, "all_free", ["kp_A", "kp_n"],
+        args, comm
     )
