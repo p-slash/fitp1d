@@ -14,30 +14,45 @@ def getHubbleZ(z, H0, Ode0):
 
 
 class LyaP1DArinyoModel2(fitp1d.model.Model):
+    def addZInits(self):
+        for i, z in enumerate(self.zlist):
+            xx = ((1 + z) / (1 + self._bias_zeff))
+            for key in self.per_z_params:
+                keyz = f"{key}{i}"
+                self.initial[keyz] = self.initial_z[key] * xx**self.evo_z[key]
+                self.boundary[keyz] = (-200., 200.)
+                self.param_labels[keyz] = f"{key}({z:.1f})"
+
+        self.names = list(self.initial.keys())
+
     def __init__(self):
         super().__init__()
 
         self._cosmo_names = ['ln10As', 'ns', 'mnu', 'Ode0', 'H0']
-        self.names = [
-            'blya_A', 'blya_n',
-            'bbeta_A', 'bbeta_n',
-            'q1', 'kv', 'av', 'bv',
-            'kp_A', 'kp_n'
-        ] + self._cosmo_names
+        self.per_z_params = ['blya', 'bbeta', 'kp']
+        self.no_z_evo_params = ['q1', 'kv', 'av', 'bv']
+        self.names = None
 
         # Table 6 of Bourboux et al. 2020, http://arxiv.org/abs/2007.08995
         self._bias_zeff = 2.334
+        self.initial_z = {
+            'blya': -0.136, 'bbeta': -0.24752, 'kp': 45.
+        }
+        self.evo_z = {
+            'blya': 3.231, 'bbeta': 1.231, 'kp': -0.1
+        }
+
         self.initial = {
-            'blya_A': -0.136,
-            'blya_n': 3.231,
-            'bbeta_A': -0.24752,
-            'bbeta_n': 1.231,
+            # 'blya_A': -0.136,
+            # 'blya_n': 3.231,
+            # 'bbeta_A': -0.24752,
+            # 'bbeta_n': 1.231,
             'q1': 0.50,
             'kv': 0.2,
             'av': 0.37,
             'bv': 1.0,
-            'kp_A': 45.0,
-            'kp_n': -0.1,
+            # 'kp_A': 45.0,
+            # 'kp_n': -0.1,
             'ln10As': 3.044,
             'ns': Planck18.meta['n'],
             'mnu': 8.,
@@ -46,24 +61,24 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
         }
 
         self.param_labels = {
-            "blya_A": r"b_\mathrm{Lya, 0}", "blya_n": r"b_\mathrm{Lya, 1}",
-            "bbeta_A": r"b_\mathrm{Lya, 0} \beta_\mathrm{Lya, 0}",
-            "bbeta_n": r"b_\mathrm{Lya, 1} + \beta_\mathrm{Lya, 1}",
+            # "blya_A": r"b_\mathrm{Lya, 0}", "blya_n": r"b_\mathrm{Lya, 1}",
+            # "bbeta_A": r"b_\mathrm{Lya, 0} \beta_\mathrm{Lya, 0}",
+            # "bbeta_n": r"b_\mathrm{Lya, 1} + \beta_\mathrm{Lya, 1}",
             "q1": r"q_1", "kv": r"k_\nu", "av": r"a_\nu", "bv": r"b_\nu",
-            "kp_A": r"k_{p, 0}", "kp_n": r"k_{p, 1}",
+            # "kp_A": r"k_{p, 0}", "kp_n": r"k_{p, 1}",
             "ln10As": r"$\ln(10^{10} A_s)$",
             "ns": r"$n_s$", "mnu": r"$\sum m_\nu \times 10^2$",
             "Ode0": r"$\Omega_\Lambda$", "H0": r"$H_0$"
         }
 
         self.boundary = {
-            'blya_A': (-1, 0), 'blya_n': (1.5, 5),
-            'bbeta_A': (-3, 0), 'bbeta_n': (0, 4),
+            # 'blya': (-5, 0), 'blya_n': (1.5, 5),
+            # 'bbeta_A': (-3, 0), 'bbeta_n': (0, 4),
             'q1': (0.0, 1.),
             'kv': (0., 1.),
             'av': (0.0, 1.),
             'bv': (0., 2.0),
-            'kp_A': (0., 200.), 'kp_n': (-2.0, 0.5),
+            # 'kp_A': (0., 200.), 'kp_n': (-2.0, 0.5),
             'ln10As': (2., 4.),
             'ns': (0.94, 1.),
             'mnu': (0., 50.),
@@ -93,6 +108,7 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
 
         self.zlist = zlist
         self.kedges_tuple_list = kedges_tuple_list
+        self.addZInits()
 
     def newcosmo(self, **kwargs):
         # if (
@@ -159,10 +175,9 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
         p1d_list = []
 
         for i, z in enumerate(self.zlist):
-            xx = ((1 + z) / (1 + self._bias_zeff))
-            blya = kwargs['blya_A'] * xx**kwargs['blya_n']
-            bbeta = kwargs['bbeta_A'] * xx**kwargs['bbeta_n']
-            kp = kwargs['kp_A'] * xx**kwargs['kp_n']
+            blya = kwargs[f'blya{i}']
+            bbeta = kwargs[f'bbeta{i}']
+            kp = kwargs[f'kp{i}']
             bias_rsd = (blya + bbeta * self._mu[i]**2)**2
             t1 = (
                 (self._k3d_Mpc[i] / kwargs['kv'])**kwargs['av']
@@ -210,6 +225,8 @@ class P1DLikelihood2():
         self.readData(fname_power, fname_cov, cov)
 
         self.p1dmodel = LyaP1DArinyoModel2()
+        kedges_tuple_list = [(x['k1'], x['k2']) for x in self._data]
+        self.p1dmodel.cacheZAndK(kedges_tuple_list, self.zlist)
 
         self.names = self.p1dmodel.names
         self.fixed_params = []
@@ -219,9 +236,6 @@ class P1DLikelihood2():
         self.param_labels = self.p1dmodel.param_labels
         self._new_args = np.empty(len(self.names))
         self._free_idx = list(np.arange(self._new_args.size))
-
-        kedges_tuple_list = [(x['k1'], x['k2']) for x in self._data]
-        self.p1dmodel.cacheZAndK(kedges_tuple_list, self.zlist)
 
     def setFiducial(self):
         pmodel_fid = self.p1dmodel.getP1DListKms(**self.initial)
