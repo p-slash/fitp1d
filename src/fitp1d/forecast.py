@@ -13,6 +13,45 @@ def getHubbleZ(z, H0, Ode0):
     return H0 * np.sqrt(Ode0 + (1 - Ode0) * (1 + z)**3)
 
 
+def plotEllipse(
+        fpl, covariance, key1, key2, ax, facecolor, **kwargs
+):
+    from matplotlib.patches import Ellipse
+    import matplotlib.transforms as transforms
+    import copy
+
+    std_x = np.sqrt(covariance[(key1, key1)])
+    mean_x = fpl.initial[key1]
+    std_y = np.sqrt(covariance[(key2, key2)])
+    mean_y = np.mean(fpl.initial[key2])
+
+    pearson = covariance[(key1, key2)] / (std_x * std_y)
+
+    ell_radius_x = np.sqrt(1 + pearson)
+    ell_radius_y = np.sqrt(1 - pearson)
+    ellipse = Ellipse(
+        (0, 0), width=ell_radius_x * 2, height=ell_radius_y * 2,
+        facecolor=facecolor, **kwargs
+    )
+
+    ax.plot(mean_x, mean_y, 'x')
+#     ax.axhline(mean_y, ls=':', lw=1, c='k')
+#     ax.axvline(mean_x, ls=':', lw=1, c='k')
+    for n in [1, 2]:
+        scale_x = n * std_x
+        scale_y = n * std_y
+        transf = transforms.Affine2D().rotate_deg(45).scale(
+            scale_x, scale_y).translate(mean_x, mean_y)
+        ell = copy.copy(ellipse)
+
+        ell.set_transform(transf + ax.transData)
+        ell.set_alpha(0.3 / n)
+        ax.add_patch(ell)
+
+    ax.set_xlabel(fpl.param_labels[key1])
+    ax.set_ylabel(fpl.param_labels[key2])
+
+
 class LyaP1DArinyoModel2(fitp1d.model.Model):
     def addZInits(self):
         for i, z in enumerate(self.zlist):
@@ -245,7 +284,7 @@ class P1DLikelihood2():
     def chi2(self, *args):
         kwargs = {par: args[i] for i, par in enumerate(self.names)}
 
-        chi2 = 1e-8
+        chi2 = 0.
         for k, s in self.prior.items():
             chi2 += ((kwargs[k] - self.initial[k]) / s)**2
 
