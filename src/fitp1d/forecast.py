@@ -20,7 +20,7 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
         self._cosmo_names = ['ln10As', 'ns', 'mnu', 'Ode0', 'H0']
         self.names = [
             'blya_A', 'blya_n',
-            'beta_A', 'beta_n',
+            'bbeta_A', 'bbeta_n',
             'q1', 'kv', 'av', 'bv',
             'kp_A', 'kp_n'
         ] + self._cosmo_names
@@ -30,8 +30,8 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
         self.initial = {
             'blya_A': -0.136,
             'blya_n': 3.231,
-            'beta_A': 1.82,
-            'beta_n': -2.0,
+            'bbeta_A': -0.24752,
+            'bbeta_n': 1.231,
             'q1': 0.50,
             'kv': 0.2,
             'av': 0.37,
@@ -47,7 +47,8 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
 
         self.param_labels = {
             "blya_A": r"b_\mathrm{Lya, 0}", "blya_n": r"b_\mathrm{Lya, 1}",
-            "beta_A": r"\beta_\mathrm{Lya, 0}", "beta_n": r"\beta_\mathrm{Lya, 1}",
+            "bbeta_A": r"b_\mathrm{Lya, 0} \beta_\mathrm{Lya, 0}",
+            "bbeta_n": r"b_\mathrm{Lya, 1} + \beta_\mathrm{Lya, 1}",
             "q1": r"q_1", "kv": r"k_\nu", "av": r"a_\nu", "bv": r"b_\nu",
             "kp_A": r"k_{p, 0}", "kp_n": r"k_{p, 1}",
             "ln10As": r"$\ln(10^{10} A_s)$",
@@ -57,7 +58,7 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
 
         self.boundary = {
             'blya_A': (-1, 0), 'blya_n': (1.5, 5),
-            'beta_A': (0.5, 3.0), 'beta_n': (-3, -1),
+            'bbeta_A': (-3, 0), 'bbeta_n': (0, 4),
             'q1': (0.0, 1.),
             'kv': (0., 1.),
             'av': (0.0, 1.),
@@ -70,8 +71,9 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
             'H0': (50., 100.)
         }
 
-        self._kperp, self._dlnkperp = np.linspace(-4, 3, 700, retstep=True)
+        self._kperp, self._dlnkperp = np.linspace(-7, 3.3, 1000, retstep=True)
         self._kperp = np.exp(self._kperp)[:, np.newaxis, np.newaxis]
+        print("kperp range", self._kperp[[0, -1], 0, 0])
         self._kperp2pi = self._kperp**2 / (2 * np.pi)
 
         self.zlist = None
@@ -93,13 +95,13 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
         self.kedges_tuple_list = kedges_tuple_list
 
     def newcosmo(self, **kwargs):
-        if (
-                self._cCosmo and all((
-                    np.isclose(cC, kwargs[key], rtol=1e-8)
-                    for key, cC in self._cCosmo.items()
-                ))
-        ):
-            return
+        # if (
+        #         self._cCosmo and all((
+        #             np.isclose(cC, kwargs[key], atol=1e-12, rtol=1e-12)
+        #             for key, cC in self._cCosmo.items()
+        #         ))
+        # ):
+        #     return
 
         for key in self._cosmo_names:
             self._cCosmo[key] = kwargs[key]
@@ -128,7 +130,7 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
             WantCls=False, WantScalars=False,
             WantTensors=False, WantVectors=False,
             WantDerivedParameters=False,
-            WantTransfer=True, kmax=20,
+            WantTransfer=True, kmax=50.,
             omch2=(1 - Ode0 - Planck18.Ob0) * h**2,
             ombh2=Planck18.Ob0 * h**2,
             omk=0.,
@@ -159,9 +161,9 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
         for i, z in enumerate(self.zlist):
             xx = ((1 + z) / (1 + self._bias_zeff))
             blya = kwargs['blya_A'] * xx**kwargs['blya_n']
-            beta = kwargs['beta_A'] * xx**kwargs['beta_n']
+            bbeta = kwargs['bbeta_A'] * xx**kwargs['bbeta_n']
             kp = kwargs['kp_A'] * xx**kwargs['kp_n']
-            bias_rsd = (blya * (1 + beta * self._mu[i]**2))**2
+            bias_rsd = (blya + bbeta * self._mu[i]**2)**2
             t1 = (
                 (self._k3d_Mpc[i] / kwargs['kv'])**kwargs['av']
                 * self._mu[i]**kwargs['bv']
@@ -243,13 +245,16 @@ class P1DLikelihood2():
 
         return chi2
 
-    def setMinimizer(self):
-        mini_initials = {
-            key: value + 1e-3 * np.random.default_rng().normal()
-            for key, value in self.initial.items()
-        }
+    def setMinimizer(self, randomize_init=False):
+        if randomize_init:
+            mini_initials = {
+                key: value + 1e-3 * np.random.default_rng().normal()
+                for key, value in self.initial.items()
+            }
+        else:
+            mini_initials = self.initial.copy()
+
         self._mini = iminuit.Minuit(self.chi2, name=self.names, **mini_initials)
-        self._mini.errors = 1e-2
         self._mini.errordef = 1
         self._mini.print_level = 1
 
@@ -287,7 +292,17 @@ class P1DLikelihood2():
 
     def fisherForecast(self, dx=1e-2):
         deriv_p1d = {}
+        if not isinstance(dx, dict):
+            dx_dict = {key: dx for key in self.names}
+        else:
+            dx_dict = dx.copy()
+
         for key, value in self.initial.items():
+            if key in self.fixed_params:
+                continue
+
+            dx = dx_dict[key]
+
             kwargs = self.initial.copy()
 
             kwargs[key] = value + dx
@@ -306,13 +321,10 @@ class P1DLikelihood2():
             ]
             deriv_p1d[key] = p1d_deriv
 
-        nparam = len(self.names)
+        nparam = len(list(deriv_p1d.keys()))
         fisher = np.empty((nparam, nparam))
-        for i, key1 in enumerate(self.names):
-            d1 = deriv_p1d[key1]
-            for j, key2 in enumerate(self.names):
-                d2 = deriv_p1d[key2]
-
+        for i, d1 in enumerate(deriv_p1d.values()):
+            for j, d2 in enumerate(deriv_p1d.values()):
                 fisher[i, j] = np.sum([
                     d1[_].dot(icov.dot(d2[_]))
                     for _, icov in enumerate(self._invcov)
