@@ -249,6 +249,7 @@ class P1DLikelihood2():
             for key, value in self.initial.items()
         }
         self._mini = iminuit.Minuit(self.chi2, name=self.names, **mini_initials)
+        self._mini.errors = 1e-2
         self._mini.errordef = 1
         self._mini.print_level = 1
 
@@ -284,10 +285,46 @@ class P1DLikelihood2():
     def free_params(self):
         return [x for x in self.names if x not in self.fixed_params]
 
+    def fisherForecast(self, dx=1e-2):
+        deriv_p1d = {}
+        for key, value in self.initial.items():
+            kwargs = self.initial.copy()
+
+            kwargs[key] = value + dx
+            p1d_p1 = self.p1dmodel.getP1DListKms(**kwargs)
+            kwargs[key] = value + 2 * dx
+            p1d_p2 = self.p1dmodel.getP1DListKms(**kwargs)
+
+            kwargs[key] = value - dx
+            p1d_m1 = self.p1dmodel.getP1DListKms(**kwargs)
+            kwargs[key] = value - 2 * dx
+            p1d_m2 = self.p1dmodel.getP1DListKms(**kwargs)
+
+            p1d_deriv = [
+                (-yp2 + 8 * yp1 - 8 * ym1 + ym2) / (12. * dx)
+                for (yp1, yp2, ym1, ym2) in zip(p1d_p1, p1d_p2, p1d_m1, p1d_m2)
+            ]
+            deriv_p1d[key] = p1d_deriv
+
+        nparam = len(self.names)
+        fisher = np.empty((nparam, nparam))
+        for i, key1 in enumerate(self.names):
+            d1 = deriv_p1d[key1]
+            for j, key2 in enumerate(self.names):
+                d2 = deriv_p1d[key2]
+
+                fisher[i, j] = np.sum([
+                    d1[_].dot(icov.dot(d2[_]))
+                    for _, icov in enumerate(self._invcov)
+                ])
+
+        return fisher, deriv_p1d
+
     def fixParam(self, key, value=None):
-        self.fixed_params.append(key)
-        idx = self.names.index(key)
-        self._free_idx.remove(idx)
+        if key not in self.fixed_params:
+            self.fixed_params.append(key)
+            idx = self.names.index(key)
+            self._free_idx.remove(idx)
 
         self._mini.fixed[key] = True
         if value is not None:
@@ -296,14 +333,16 @@ class P1DLikelihood2():
         self._new_args[idx] = self._mini.values[key]
 
     def releaseParam(self, key):
-        self._mini.fixed[key] = False
-        self.fixed_params.remove(key)
-        idx = self.names.index(key)
-        self._free_idx.append(idx)
-        self._free_idx.sort()
+        if key in self.fixed_params:
+            self._mini.fixed[key] = False
+            self.fixed_params.remove(key)
+            idx = self.names.index(key)
+            self._free_idx.append(idx)
+            self._free_idx.sort()
 
     def releaseAll(self):
-        for key in self.fixed_params:
+        cpy = self.fixed_params.copy()
+        for key in cpy:
             self.releaseParam(key)
 
     def fit(self, print_info=True):
