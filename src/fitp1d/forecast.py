@@ -14,7 +14,7 @@ def getHubbleZ(z, H0, Ode0):
 
 
 def plotEllipse(
-        fpl, covariance, key1, key2, ax, facecolor, **kwargs
+        fpl, covariance, key1, key2, ax, color, **kwargs
 ):
     from matplotlib.patches import Ellipse
     import matplotlib.transforms as transforms
@@ -31,13 +31,13 @@ def plotEllipse(
     ell_radius_y = np.sqrt(1 - pearson)
     ellipse = Ellipse(
         (0, 0), width=ell_radius_x * 2, height=ell_radius_y * 2,
-        facecolor=facecolor, **kwargs
+        fc=color, ec=color, lw=2, **kwargs
     )
 
     ax.plot(mean_x, mean_y, 'x')
 #     ax.axhline(mean_y, ls=':', lw=1, c='k')
 #     ax.axvline(mean_x, ls=':', lw=1, c='k')
-    for n in [1, 2]:
+    for n, ls in zip([1, 2], ['-', '--']):
         scale_x = n * std_x
         scale_y = n * std_y
         transf = transforms.Affine2D().rotate_deg(45).scale(
@@ -45,7 +45,10 @@ def plotEllipse(
         ell = copy.copy(ellipse)
 
         ell.set_transform(transf + ax.transData)
-        ell.set_alpha(0.3 / n)
+        ell.set_linestyle(ls)
+        if 'fill' not in kwargs or kwargs['fill']:
+            ell.set_alpha(0.3 / n)
+
         ax.add_patch(ell)
 
     ax.set_xlabel(fpl.param_labels[key1])
