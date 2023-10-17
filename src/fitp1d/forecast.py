@@ -34,7 +34,7 @@ def plotEllipse(
         fc=color, ec=color, lw=2, **kwargs
     )
 
-    ax.plot(mean_x, mean_y, 'x')
+    ax.plot(mean_x, mean_y, 'kx')
 
     alpha = kwargs['alpha'] if 'alpha' in kwargs else 0.4
     for n, ls in zip([1, 2], ['-', '--']):
@@ -130,7 +130,6 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
         self.zlist = None
         self._p3dlin = None
         self._Delta2 = None
-        # self._k1d_Mpc = None
         self._k3d = None
         self._mu = None
         self.Mpc2kms = None
@@ -165,7 +164,6 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
             getHubbleZ(z, H0, Ode0) / (1 + z) for z in self.zlist
         ])
 
-        # self._k1d_Mpc = []
         self._k3d_Mpc = []
         self._mu = []
         for i, (k1, k2) in enumerate(self.kedges_tuple_list):
@@ -213,12 +211,12 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
             blya = kwargs[f'blya{i}']
             bbeta = kwargs[f'bbeta{i}']
             kp = kwargs[f'kp{i}']
-            kv = kwargs[f'10kv{i}'] / 10.
+            kv10 = kwargs[f'10kv{i}']
             bias_rsd = (blya + bbeta * self._mu[i]**2)**2
             t1 = self._Delta2[i] * (
-                (self._k3d_Mpc[i] / kv)**kwargs['av']
+                (self._k3d_Mpc[i] / kv10)**kwargs['av']
                 * self._mu[i]**kwargs['bv']
-            )
+            ) * 10**-kwargs['av']
             t2 = (self._k3d_Mpc[i] / kp)**2
             Fnl = np.exp(kwargs['q1'] * (1 - t1) - t2)
 
