@@ -118,8 +118,8 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
         self.param_labels = {
             "q1": r"q_1", "10kv": r"k_\nu \times 10", "av": r"a_\nu",
             "bv": r"b_\nu", "ln10As": r"$\ln(10^{10} A_s)$",
-            "ns": r"$n_s$", "mnu": r"$\sum m_\nu \times 10^2$",
-            "Ode0": r"$\Omega_\Lambda$", "H0": r"$H_0$"
+            "ns": r"$n_s$", "mnu": r"$\sum m_\nu$ [$10^{-2}~$eV]",
+            "Ode0": r"$\Omega_\Lambda$", "H0": r"$H_0$ [km s$^{-1}$ Mpc$^{-1}$]"
         }
 
         self._kperp, self._dlnkperp = np.linspace(-7, 3.5, 1050, retstep=True)
