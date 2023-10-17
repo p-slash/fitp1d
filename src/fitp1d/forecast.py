@@ -42,7 +42,7 @@ def plotEllipse(
         scale_y = n * std_y
         transf = transforms.Affine2D().rotate_deg(45).scale(
             scale_x, scale_y).translate(mean_x, mean_y)
-        ell = copy.copy(ellipse)
+        ell = copy.deepcopy(ellipse)
 
         ell.set_transform(transf + ax.transData)
         ell.set_linestyle(ls)
