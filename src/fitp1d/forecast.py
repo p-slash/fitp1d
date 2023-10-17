@@ -64,7 +64,14 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
             for key in self.per_z_params:
                 keyz = f"{key}{i}"
                 self.initial[keyz] = self.initial_z[key] * xx**self.evo_z[key]
-                self.boundary[keyz] = (-200., 200.)
+                low, up = -200., 200
+
+                if key in ['kp', '10kv']:
+                    low = 0.
+                if key in ['blya', 'bbeta']:
+                    up = 0.
+
+                self.boundary[keyz] = (low, up)
                 self.param_labels[keyz] = f"{key}({z:.1f})"
 
         self.names = list(self.initial.keys())
@@ -73,30 +80,23 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
         super().__init__()
 
         self._cosmo_names = ['ln10As', 'ns', 'mnu', 'Ode0', 'H0']
-        self.per_z_params = ['blya', 'bbeta', 'kp']
-        self.no_z_evo_params = ['q1', 'kv', 'av', 'bv']
+        self.per_z_params = ['blya', 'bbeta', 'kp', '10kv']
+        self.no_z_evo_params = ['q1', 'av', 'bv']
         self.names = None
 
         # Table 6 of Bourboux et al. 2020, http://arxiv.org/abs/2007.08995
         self._bias_zeff = 2.334
         self.initial_z = {
-            'blya': -0.136, 'bbeta': -0.24752, 'kp': 45.
+            'blya': -0.136, 'bbeta': -0.24752, 'kp': 45., '10kv': 2.
         }
         self.evo_z = {
-            'blya': 3.231, 'bbeta': 1.231, 'kp': -0.1
+            'blya': 3.231, 'bbeta': 1.231, 'kp': -0.1, '10kv': 0
         }
 
         self.initial = {
-            # 'blya_A': -0.136,
-            # 'blya_n': 3.231,
-            # 'bbeta_A': -0.24752,
-            # 'bbeta_n': 1.231,
             'q1': 0.50,
-            'kv': 0.2,
             'av': 0.37,
             'bv': 1.0,
-            # 'kp_A': 45.0,
-            # 'kp_n': -0.1,
             'ln10As': 3.044,
             'ns': Planck18.meta['n'],
             'mnu': 8.,
@@ -104,25 +104,10 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
             'H0': Planck18.H0.value
         }
 
-        self.param_labels = {
-            # "blya_A": r"b_\mathrm{Lya, 0}", "blya_n": r"b_\mathrm{Lya, 1}",
-            # "bbeta_A": r"b_\mathrm{Lya, 0} \beta_\mathrm{Lya, 0}",
-            # "bbeta_n": r"b_\mathrm{Lya, 1} + \beta_\mathrm{Lya, 1}",
-            "q1": r"q_1", "kv": r"k_\nu", "av": r"a_\nu", "bv": r"b_\nu",
-            # "kp_A": r"k_{p, 0}", "kp_n": r"k_{p, 1}",
-            "ln10As": r"$\ln(10^{10} A_s)$",
-            "ns": r"$n_s$", "mnu": r"$\sum m_\nu \times 10^2$",
-            "Ode0": r"$\Omega_\Lambda$", "H0": r"$H_0$"
-        }
-
         self.boundary = {
-            # 'blya': (-5, 0), 'blya_n': (1.5, 5),
-            # 'bbeta_A': (-3, 0), 'bbeta_n': (0, 4),
             'q1': (0.0, 1.),
-            'kv': (0., 1.),
             'av': (0.0, 1.),
             'bv': (0., 2.0),
-            # 'kp_A': (0., 200.), 'kp_n': (-2.0, 0.5),
             'ln10As': (2., 4.),
             'ns': (0.94, 1.),
             'mnu': (0., 50.),
@@ -130,7 +115,14 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
             'H0': (50., 100.)
         }
 
-        self._kperp, self._dlnkperp = np.linspace(-7, 3.3, 1000, retstep=True)
+        self.param_labels = {
+            "q1": r"q_1", "10kv": r"k_\nu \times 10", "av": r"a_\nu",
+            "bv": r"b_\nu", "ln10As": r"$\ln(10^{10} A_s)$",
+            "ns": r"$n_s$", "mnu": r"$\sum m_\nu \times 10^2$",
+            "Ode0": r"$\Omega_\Lambda$", "H0": r"$H_0$"
+        }
+
+        self._kperp, self._dlnkperp = np.linspace(-7, 3.5, 1050, retstep=True)
         self._kperp = np.exp(self._kperp)[:, np.newaxis, np.newaxis]
         print("kperp range", self._kperp[[0, -1], 0, 0])
         self._kperp2pi = self._kperp**2 / (2 * np.pi)
@@ -182,7 +174,6 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
             _k3d_Mpc = np.sqrt(self._kperp**2 + _k1d_Mpc**2)
 
             self._mu.append(_k1d_Mpc / _k3d_Mpc)
-            # self._k1d_Mpc.append(_k1d_Mpc)
             self._k3d_Mpc.append(_k3d_Mpc)
 
         camb_params = camb.set_params(
@@ -222,13 +213,14 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
             blya = kwargs[f'blya{i}']
             bbeta = kwargs[f'bbeta{i}']
             kp = kwargs[f'kp{i}']
+            kv = kwargs[f'10kv{i}'] / 10.
             bias_rsd = (blya + bbeta * self._mu[i]**2)**2
-            t1 = (
-                (self._k3d_Mpc[i] / kwargs['kv'])**kwargs['av']
+            t1 = self._Delta2[i] * (
+                (self._k3d_Mpc[i] / kv)**kwargs['av']
                 * self._mu[i]**kwargs['bv']
             )
             t2 = (self._k3d_Mpc[i] / kp)**2
-            Fnl = np.exp(kwargs['q1'] * self._Delta2[i] * (1 - t1) - t2)
+            Fnl = np.exp(kwargs['q1'] * (1 - t1) - t2)
 
             p3d = self._p3dlin[i] * bias_rsd * Fnl
             p1d_Mpc = np.trapz(p3d * self._kperp2pi, dx=self._dlnkperp, axis=0)
