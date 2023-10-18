@@ -142,6 +142,30 @@ class IonModel(Model):
         self._setOneionA2Terms()
         self._setTwoionA2Terms()
 
+    def getAllVelocitySeparations(self):
+        vseps = {}
+
+        for ion, transitions in IonModel.Transitions.items():
+            for wave, fn in transitions:
+                key = f'Lya-{ion} ({wave:.0f})'
+                vseps[key] = LIGHT_SPEED * np.log(LYA_WAVELENGTH / wave)
+
+        for ion, transitions in IonModel.Transitions.items():
+            for p1, p2 in itertools.combinations(transitions, 2):
+                key = f'{ion} ({p1[0]:.0f}-{p2[0]:.0f})'
+                vseps[key] = np.abs(LIGHT_SPEED * np.log(p2[0] / p1[0]))
+
+        ions = list(IonModel.Transitions.keys())
+        for i1, i2 in itertools.combinations(ions, 2):
+            t1 = IonModel.Transitions[i1]
+            t2 = IonModel.Transitions[i2]
+
+            for (p1, p2) in itertools.product(t1, t2):
+                key = f"{i1} ({p1[0]:.0f}) - {i2} ({p2[0]:.0f})"
+                vseps[key] = np.abs(LIGHT_SPEED * np.log(p2[0] / p1[0]))
+
+        return vseps
+
     def integrate(self, kedges):
         k1, k2 = kedges
         nkbins = k1.size
