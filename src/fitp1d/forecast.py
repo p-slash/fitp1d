@@ -59,7 +59,7 @@ def plotEllipse(
 
 
 class LyaP1DArinyoModel2(fitp1d.model.Model):
-    CAMB_KMAX = 1e3
+    CAMB_KMAX = 2e2
     CAMB_KMIN = 1e-3
 
     def addZInits(self):
@@ -156,18 +156,11 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
         self._p3dlin = []
         self._Delta2 = []
         for i, (k1, k2) in enumerate(self.kedges_tuple_list):
-            self._k3d_Mpc.append(
-                np.empty((self._kperp.shape[0], k1.size, fitp1d.model._NSUB_K_))
-            )
-            self._mu.append(
-                np.empty((self._kperp.shape[0], k1.size, fitp1d.model._NSUB_K_))
-            )
-            self._p3dlin.append(
-                np.empty((self._kperp.shape[0], k1.size, fitp1d.model._NSUB_K_))
-            )
-            self._Delta2.append(
-                np.empty((self._kperp.shape[0], k1.size, fitp1d.model._NSUB_K_))
-            )
+            shape = (self._kperp.shape[0], k1.size, fitp1d.model._NSUB_K_)
+            self._k3d_Mpc.append(np.empty(shape))
+            self._mu.append(np.empty(shape))
+            self._p3dlin.append(np.empty(shape))
+            self._Delta2.append(np.empty(shape))
 
     def newcosmo(self, **kwargs):
         # if (
@@ -221,7 +214,7 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
         np.log(khs, out=khs)
 
         # Add extrapolation data points as done in camb
-        logextrap = np.log(LyaP1DArinyoModel2.CAMB_KMAX)
+        logextrap = np.log(2 * LyaP1DArinyoModel2.CAMB_KMAX)
         delta = logextrap - khs[-1]
 
         pk0 = pk[:, -1]
