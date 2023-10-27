@@ -55,12 +55,14 @@ class Model():
 
 class IonModel(Model):
     Transitions = {
-        "Si-II": [(1190.42, 2.77e-01), (1193.28, 5.75e-01),
-                  (1194.50, 7.37e-01), (1197.39, 1.50e-01)],
-        "Si-III": [(1206.53, 1.52e+00), (1207.52, 5.30e-01)]
+        "Si-II": [
+            (1190.42, 2.77e-01), (1193.28, 5.75e-01),
+            (1260.42, 1.22), (1304.37, 9.28e-02), (1526.72, 1.33e-01)
+        ],
+        "Si-III": [(1206.52, 1.67)]
     }
 
-    PivotF = {"Si-II": 7.37e-01, "Si-III": 1.52e+00}
+    PivotF = {"Si-II": 1.22, "Si-III": 1.67}
 
     def _setConstA2Terms(self):
         self._splines['const_a2'] = {}
@@ -121,9 +123,9 @@ class IonModel(Model):
             self._splines['twoion_a2'][f"a_{i1}-a_{i2}"] = \
                 CubicSpline(karr, result)
 
-    def __init__(self):
+    def __init__(self, base_ions=["a_Si-II", "a_Si-III"]):
         super().__init__()
-        self.names = ["a_Si-II", "a_Si-III"]
+        self.names = base_ions.copy()
         self._name_combos = itertools.combinations(self.names, 2)
         self.param_labels = {
             "a_Si-II": r"a-{\mathrm{Si~II}}",
