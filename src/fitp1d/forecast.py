@@ -4,6 +4,7 @@ import numpy as np
 import emcee
 import iminuit
 from getdist import MCSamples
+from scipy.interpolate import CubicSpline
 
 from fitp1d.data import DetailedData
 import fitp1d.model
@@ -58,6 +59,9 @@ def plotEllipse(
 
 
 class LyaP1DArinyoModel2(fitp1d.model.Model):
+    CAMB_KMAX = 1e3
+    CAMB_KMIN = 1e-3
+
     def addZInits(self):
         for i, z in enumerate(self.zlist):
             xx = ((1 + z) / (1 + self._bias_zeff))
@@ -122,7 +126,9 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
             "Ode0": r"$\Omega_\Lambda$", "H0": r"$H_0$ [km s$^{-1}$ Mpc$^{-1}$]"
         }
 
-        self._kperp, self._dlnkperp = np.linspace(-7, 3.5, 1050, retstep=True)
+        self._kperp, self._dlnkperp = np.linspace(
+            np.log(LyaP1DArinyoModel2.CAMB_KMIN),
+            np.log(LyaP1DArinyoModel2.CAMB_KMAX), 500, retstep=True)
         self._kperp = np.exp(self._kperp)[:, np.newaxis, np.newaxis]
         print("kperp range", self._kperp[[0, -1], 0, 0])
         self._kperp2pi = self._kperp**2 / (2 * np.pi)
@@ -145,6 +151,24 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
         self.kedges_tuple_list = kedges_tuple_list
         self.addZInits()
 
+        self._k3d_Mpc = []
+        self._mu = []
+        self._p3dlin = []
+        self._Delta2 = []
+        for i, (k1, k2) in enumerate(self.kedges_tuple_list):
+            self._k3d_Mpc.append(
+                np.empty((self._kperp.shape[0], k1.size, fitp1d.model._NSUB_K_))
+            )
+            self._mu.append(
+                np.empty((self._kperp.shape[0], k1.size, fitp1d.model._NSUB_K_))
+            )
+            self._p3dlin.append(
+                np.empty((self._kperp.shape[0], k1.size, fitp1d.model._NSUB_K_))
+            )
+            self._Delta2.append(
+                np.empty((self._kperp.shape[0], k1.size, fitp1d.model._NSUB_K_))
+            )
+
     def newcosmo(self, **kwargs):
         # if (
         #         self._cCosmo and all((
@@ -164,22 +188,22 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
             getHubbleZ(z, H0, Ode0) / (1 + z) for z in self.zlist
         ])
 
-        self._k3d_Mpc = []
-        self._mu = []
+        # 2.3 ms
         for i, (k1, k2) in enumerate(self.kedges_tuple_list):
             kfine = np.linspace(k1, k2, fitp1d.model._NSUB_K_, endpoint=False).T
             _k1d_Mpc = (kfine * self.Mpc2kms[i])[np.newaxis, :]
-            _k3d_Mpc = np.sqrt(self._kperp**2 + _k1d_Mpc**2)
+            self._k3d_Mpc[i][:] = self._kperp**2 + _k1d_Mpc**2
+            np.sqrt(self._k3d_Mpc[i], out=self._k3d_Mpc[i])
+            np.reciprocal(self._k3d_Mpc[i], out=self._mu[i])
+            self._mu[i] *= _k1d_Mpc
 
-            self._mu.append(_k1d_Mpc / _k3d_Mpc)
-            self._k3d_Mpc.append(_k3d_Mpc)
-
+        # 120 ms +- 3
         camb_params = camb.set_params(
             redshifts=sorted(self.zlist, reverse=True),
             WantCls=False, WantScalars=False,
             WantTensors=False, WantVectors=False,
             WantDerivedParameters=False,
-            WantTransfer=True, kmax=50.,
+            WantTransfer=True,
             omch2=(1 - Ode0 - Planck18.Ob0) * h**2,
             ombh2=Planck18.Ob0 * h**2,
             omk=0.,
@@ -190,20 +214,30 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
         )
         camb_results = camb.get_results(camb_params)
 
-        camb_interp = camb_results.get_matter_power_interpolator(
-            nonlinear=False,
-            hubble_units=False,
-            k_hunit=False)
+        khs, _, pk = camb_results.get_linear_matter_power_spectrum(
+            nonlinear=False, hubble_units=False)
+        khs *= h
+        np.log(pk, out=pk)
+        np.log(khs, out=khs)
 
-        self._p3dlin = []
-        self._Delta2 = []
+        # Add extrapolation data points as done in camb
+        logextrap = np.log(LyaP1DArinyoModel2.CAMB_KMAX)
+        delta = logextrap - khs[-1]
+
+        pk0 = pk[:, -1]
+        dlog = (pk0 - pk[:, -2]) / (khs[-1] - khs[-2])
+        pk = np.column_stack((pk, pk0 + dlog * delta * 0.9, pk0 + dlog * delta))
+        khs = np.hstack((khs, logextrap - delta * 0.1, logextrap))
+
+        # 16.4 ms
         for i, z in enumerate(self.zlist):
-            _p3dlin = camb_interp.P(z, self._k3d_Mpc[i])
-
-            self._p3dlin.append(_p3dlin)
-            self._Delta2.append(_p3dlin * self._k3d_Mpc[i]**3 / 2 / np.pi**2)
+            self._p3dlin[i][:] = np.exp(CubicSpline(
+                khs, pk[i], bc_type='natural', extrapolate=True
+            )(np.log(self._k3d_Mpc[i])))
+            self._Delta2[i][:] = self._p3dlin[i] * self._k3d_Mpc[i]**3 / 2 / np.pi**2
 
     def getP1DListKms(self, **kwargs):
+        """ 10.6 ms """
         self.newcosmo(**kwargs)
         p1d_list = []
 
@@ -212,17 +246,18 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
             bbeta = kwargs[f'bbeta{i}']
             kp = kwargs[f'kp{i}']
             kv10 = kwargs[f'10kv{i}']
-            bias_rsd = (blya + bbeta * self._mu[i]**2)**2
             t1 = self._Delta2[i] * (
                 (self._k3d_Mpc[i] / kv10)**kwargs['av']
                 * self._mu[i]**kwargs['bv']
             ) * 10**-kwargs['av']
             t2 = (self._k3d_Mpc[i] / kp)**2
-            Fnl = np.exp(kwargs['q1'] * (1 - t1) - t2)
+            p3d = np.exp(kwargs['q1'] * (1 - t1) - t2)
 
-            p3d = self._p3dlin[i] * bias_rsd * Fnl
-            p1d_Mpc = np.trapz(p3d * self._kperp2pi, dx=self._dlnkperp, axis=0)
-            p1d_list.append(p1d_Mpc.mean(axis=1) * self.Mpc2kms[i])
+            p3d *= self._p3dlin[i]
+            p3d *= (blya + bbeta * self._mu[i]**2)**2
+            p3d *= self._kperp2pi
+            p1d_Mpc = np.trapz(p3d, dx=self._dlnkperp, axis=0).mean(axis=1)
+            p1d_list.append(p1d_Mpc * self.Mpc2kms[i])
 
         return p1d_list
 
