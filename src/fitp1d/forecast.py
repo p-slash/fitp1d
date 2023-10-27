@@ -140,6 +140,7 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
         self._mu = None
         self.Mpc2kms = None
         self.ndata = None
+        self.fixedCosmology = False
 
         self._cCosmo = {}
 
@@ -231,7 +232,8 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
 
     def getP1DListKms(self, **kwargs):
         """ 10.6 ms """
-        self.newcosmo(**kwargs)
+        if not self.fixedCosmology:
+            self.newcosmo(**kwargs)
         p1d_list = []
 
         for i, z in enumerate(self.zlist):
@@ -428,10 +430,27 @@ class P1DLikelihood2():
             self._free_idx.append(idx)
             self._free_idx.sort()
 
+        if key in self.p1dmodel._cosmo_names:
+            self.p1dmodel.fixedCosmology = False
+
     def releaseAll(self):
         cpy = self.fixed_params.copy()
         for key in cpy:
             self.releaseParam(key)
+
+        self.p1dmodel.fixedCosmology = False
+
+    def fixCosmology(self):
+        for key in self.p1dmodel._cosmo_names:
+            self.fixParam(key)
+
+        self.p1dmodel.fixedCosmology = True
+
+    def freeCosmology(self):
+        for key in self.p1dmodel._cosmo_names:
+            self.releaseParam(key)
+
+        self.p1dmodel.fixedCosmology = False
 
     def fit(self, print_info=True):
         self._mini.migrad()
