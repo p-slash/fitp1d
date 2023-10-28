@@ -56,17 +56,20 @@ class Model():
 class IonModel(Model):
     Transitions = {
         "Si-II": [
-            (1190.42, 2.77e-01), (1193.28, 5.75e-01),
-            (1260.42, 1.22), (1304.37, 9.28e-02), (1526.72, 1.33e-01)
+            (1190.42, 0.277), (1193.28, 0.575), (1260.42, 1.22),
+            (1304.37, 0.0928), (1526.72, 0.133)
         ],
-        "Si-III": [(1206.52, 1.67)]
+        "Si-III": [(1206.52, 1.67)],
+        "O-I": [(1302.168, 0.0520)]
     }
 
     PivotF = {"Si-II": 1.22, "Si-III": 1.67}
+    VMax = LIGHT_SPEED * np.log(1180. / 1050.)
 
     def _setConstA2Terms(self):
         self._splines['const_a2'] = {}
-        for ion, transitions in IonModel.Transitions.items():
+        for ion in self._ions:
+            transitions = IonModel.Transitions[ion]
             self._splines['const_a2'][f"a_{ion}"] = 0
             fpivot = IonModel.PivotF[ion]
 
@@ -77,12 +80,15 @@ class IonModel(Model):
         self._splines['linear_a'] = {}
 
         karr = np.linspace(kmin, kmax, nkpoints)
-        for ion, transitions in IonModel.Transitions.items():
+        for ion in self._ions:
+            transitions = IonModel.Transitions[ion]
             result = np.zeros(nkpoints)
             fpivot = IonModel.PivotF[ion]
 
             for wave, fn in transitions:
                 vn = LIGHT_SPEED * np.log(LYA_WAVELENGTH / wave)
+                if vn > self._vmax:
+                    continue
                 r = fn / fpivot
                 result += 2 * r * np.cos(karr * vn)
 
@@ -92,12 +98,15 @@ class IonModel(Model):
         self._splines['oneion_a2'] = {}
 
         karr = np.linspace(kmin, kmax, nkpoints)
-        for ion, transitions in IonModel.Transitions.items():
+        for ion in self._ions:
+            transitions = IonModel.Transitions[ion]
             result = np.zeros(nkpoints)
             fpivot = IonModel.PivotF[ion]
 
             for p1, p2 in itertools.combinations(transitions, 2):
                 vmn = np.abs(LIGHT_SPEED * np.log(p2[0] / p1[0]))
+                if vmn > self._vmax:
+                    continue
                 r = (p1[1] / fpivot) * (p2[1] / fpivot)
                 result += 2 * r * np.cos(karr * vmn)
 
@@ -107,8 +116,7 @@ class IonModel(Model):
         self._splines['twoion_a2'] = {}
 
         karr = np.linspace(kmin, kmax, nkpoints)
-        ions = list(IonModel.Transitions.keys())
-        for i1, i2 in itertools.combinations(ions, 2):
+        for i1, i2 in itertools.combinations(self._ions, 2):
             result = np.zeros(nkpoints)
             t1 = IonModel.Transitions[i1]
             t2 = IonModel.Transitions[i2]
@@ -117,20 +125,29 @@ class IonModel(Model):
 
             for (p1, p2) in itertools.product(t1, t2):
                 vmn = np.abs(LIGHT_SPEED * np.log(p2[0] / p1[0]))
+                if vmn > self._vmax:
+                    continue
                 r = (p1[1] / fp1) * (p2[1] / fp2)
                 result += 2 * r * np.cos(karr * vmn)
 
             self._splines['twoion_a2'][f"a_{i1}-a_{i2}"] = \
                 CubicSpline(karr, result)
 
-    def __init__(self, base_ions=["a_Si-II", "a_Si-III"]):
+    def __init__(self, model_ions=["Si-II", "Si-III"], vmax=0):
         super().__init__()
-        self.names = base_ions.copy()
+        self._ions = model_ions.copy()
+        self.names = [f"a_{ion}" for ion in model_ions]
         self._name_combos = itertools.combinations(self.names, 2)
         self.param_labels = {
             "a_Si-II": r"a-{\mathrm{Si~II}}",
-            "a_Si-III": r"a-{\mathrm{Si~III}}"
+            "a_Si-III": r"a-{\mathrm{Si~III}}",
+            "a_O-I": r"a-{\mathrm{O~I}}"
         }
+
+        if vmax > 0:
+            self._vmax = IonModel.VMax
+        else:
+            self._vmax = vmax
 
         self.initial = {k: 1e-2 for k in self.names}
         self.boundary = {k: (-1, 1) for k in self.names}
