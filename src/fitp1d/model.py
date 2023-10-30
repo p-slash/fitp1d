@@ -76,7 +76,7 @@ class IonModel(Model):
             for wave, fn in transitions:
                 self._splines['const_a2'][f"a_{ion}"] += (fn / fpivot)**2
 
-    def _setLinearATerms(self, kmin=0, kmax=10, nkpoints=1000000):
+    def _setLinearATerms(self, kmin=0, kmax=1, nkpoints=int(1e6)):
         self._splines['linear_a'] = {}
 
         karr = np.linspace(kmin, kmax, nkpoints)
@@ -86,7 +86,7 @@ class IonModel(Model):
             fpivot = IonModel.PivotF[ion]
 
             for wave, fn in transitions:
-                vn = LIGHT_SPEED * np.log(LYA_WAVELENGTH / wave)
+                vn = np.abs(LIGHT_SPEED * np.log(LYA_WAVELENGTH / wave))
                 if vn > self._vmax:
                     continue
                 r = fn / fpivot
@@ -94,7 +94,7 @@ class IonModel(Model):
 
             self._splines['linear_a'][f"a_{ion}"] = CubicSpline(karr, result)
 
-    def _setOneionA2Terms(self, kmin=0, kmax=10, nkpoints=1000000):
+    def _setOneionA2Terms(self, kmin=0, kmax=1, nkpoints=int(1e6)):
         self._splines['oneion_a2'] = {}
 
         karr = np.linspace(kmin, kmax, nkpoints)
@@ -112,7 +112,7 @@ class IonModel(Model):
 
             self._splines['oneion_a2'][f"a_{ion}"] = CubicSpline(karr, result)
 
-    def _setTwoionA2Terms(self, kmin=0, kmax=10, nkpoints=1000000):
+    def _setTwoionA2Terms(self, kmin=0, kmax=1, nkpoints=int(1e6)):
         i2a2 = {}
         self._name_combos = []
 
@@ -601,10 +601,10 @@ class CombinedModel(Model):
         self._models['lya'].cache(kedges, z)
         if self._xi1d:
             Rkms = LIGHT_SPEED * 0.8 / (1 + z) / LYA_WAVELENGTH
-            dv = np.mean(kedges[1] - kedges[0])
+            self._dv = np.mean(kedges[1] - kedges[0]) / _NSUB_K_
 
-            N = int(np.round(8 * self._models['lya'].kfine.max() / dv))
-            self._k = np.fft.rfftfreq(N, d=dv)
+            N = int(np.round(1024 * self._models['lya'].kfine.max() / self._dv))
+            self._k = np.fft.rfftfreq(N, d=self._dv)
             # self._v = np.arange(N // 2) * dv
             self._reso = np.exp(-(self._k * Rkms)**2)
 
@@ -639,6 +639,6 @@ class CombinedModel(Model):
         result = self._models['lya'].evaluate(self._k, **kwargs)
         result *= self._models['ion'].evaluate(self._k, **kwargs)
         result *= self._reso
-        xi1d = np.fft.irfft(result)[:self.ndata * _NSUB_K_]
+        xi1d = np.fft.irfft(result)[:self.ndata * _NSUB_K_] / self._dv
         xi1d = xi1d.reshape(self.ndata, _NSUB_K_).mean(axis=1)
         return xi1d
