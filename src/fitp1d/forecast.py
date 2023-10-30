@@ -26,6 +26,9 @@ def plotEllipse(
     std_y = np.sqrt(covariance[(key2, key2)])
     mean_y = np.mean(fpl.initial[key2])
 
+    if (key1, key2) not in covariance:
+        key1, key2 = key2, key1
+
     pearson = covariance[(key1, key2)] / (std_x * std_y)
 
     ell_radius_x = np.sqrt(1 + pearson)
