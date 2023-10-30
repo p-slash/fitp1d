@@ -114,6 +114,7 @@ class IonModel(Model):
 
     def _setTwoionA2Terms(self, kmin=0, kmax=10, nkpoints=1000000):
         i2a2 = {}
+        self._name_combos = []
 
         karr = np.linspace(kmin, kmax, nkpoints)
         for i1, i2 in itertools.combinations(self._ions, 2):
@@ -138,9 +139,9 @@ class IonModel(Model):
                 continue
 
             i2a2[f"a_{i1}-a_{i2}"] = CubicSpline(karr, result)
+            self._name_combos.append((f"a_{i1}", f"a_{i2}"))
 
         self._splines['twoion_a2'] = i2a2
-        self._name_combos = list(i2a2.keys())
 
     def __init__(self, model_ions=["Si-II", "Si-III"], vmax=0):
         super().__init__()
