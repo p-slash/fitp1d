@@ -240,7 +240,7 @@ class IonModel(Model):
                 self._integrated_model[term][ionkey] = interp(kfine)
 
     def evaluate(self, k, **kwargs):
-        result = np.zeros_like(self.kfine)
+        result = np.zeros_like(k)
 
         for key in self.names:
             asi = kwargs[key]
