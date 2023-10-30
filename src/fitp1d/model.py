@@ -230,6 +230,27 @@ class IonModel(Model):
             for ionkey, interp in self._splines[term].items():
                 self._integrated_model[term][ionkey] = interp(kfine)
 
+    def evaluate(self, k, **kwargs):
+        result = np.zeros_like(self.kfine)
+
+        for key in self.names:
+            asi = kwargs[key]
+            result += asi * self._splines['linear_a'][key](k)
+            result += (
+                self._splines['const_a2'][key](k)
+                + self._splines['oneion_a2'][key](k)
+            ) * asi**2
+
+        for (key1, key2) in self._name_combos:
+            a1 = kwargs[key1]
+            a2 = kwargs[key2]
+            m = self._splines['twoion_a2'][f"{key1}-{key2}"](k)
+            result += a1 * a2 * m
+
+        result += 1
+
+        return result
+
 
 class ResolutionModel(Model):
     def __init__(self, add_bias=True, add_variance=True):
