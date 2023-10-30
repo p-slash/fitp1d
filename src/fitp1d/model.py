@@ -113,11 +113,12 @@ class IonModel(Model):
             self._splines['oneion_a2'][f"a_{ion}"] = CubicSpline(karr, result)
 
     def _setTwoionA2Terms(self, kmin=0, kmax=10, nkpoints=1000000):
-        self._splines['twoion_a2'] = {}
+        i2a2 = {}
 
         karr = np.linspace(kmin, kmax, nkpoints)
         for i1, i2 in itertools.combinations(self._ions, 2):
             result = np.zeros(nkpoints)
+            all_zero = True
             t1 = IonModel.Transitions[i1]
             t2 = IonModel.Transitions[i2]
             fp1 = IonModel.PivotF[i1]
@@ -129,15 +130,21 @@ class IonModel(Model):
                     continue
                 r = (p1[1] / fp1) * (p2[1] / fp2)
                 result += 2 * r * np.cos(karr * vmn)
+                all_zero = False
 
-            self._splines['twoion_a2'][f"a_{i1}-a_{i2}"] = \
-                CubicSpline(karr, result)
+            if all_zero:
+                continue
+
+            i2a2[f"a_{i1}-a_{i2}"] = CubicSpline(karr, result)
+
+        self._splines['twoion_a2'] = i2a2
+        self._name_combos = list(i2a2.keys())
 
     def __init__(self, model_ions=["Si-II", "Si-III"], vmax=0):
         super().__init__()
         self._ions = model_ions.copy()
         self.names = [f"a_{ion}" for ion in model_ions]
-        self._name_combos = itertools.combinations(self.names, 2)
+        self._name_combos = []
         self.param_labels = {
             "a_Si-II": r"a-{\mathrm{Si~II}}",
             "a_Si-III": r"a-{\mathrm{Si~III}}",
