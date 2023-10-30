@@ -64,7 +64,7 @@ class IonModel(Model):
     }
 
     PivotF = {"Si-II": 1.22, "Si-III": 1.67, "O-I": 0.0520}
-    VMax = LIGHT_SPEED * np.log(1180. / 1050.)
+    VMax = LIGHT_SPEED * np.log(1180. / 1050.) / 2.
 
     def _setConstA2Terms(self):
         self._splines['const_a2'] = {}
@@ -186,7 +186,7 @@ class IonModel(Model):
         for ion, transitions in IonModel.Transitions.items():
             for wave, fn in transitions:
                 key = f'Lya-{ion} ({wave:.0f})'
-                vseps[key] = LIGHT_SPEED * np.log(LYA_WAVELENGTH / wave)
+                vseps[key] = np.abs(LIGHT_SPEED * np.log(LYA_WAVELENGTH / wave))
 
         for ion, transitions in IonModel.Transitions.items():
             for p1, p2 in itertools.combinations(transitions, 2):
@@ -555,11 +555,14 @@ class CombinedModel(Model):
             self.boundary |= M.boundary
             self.prior |= M.prior
 
-    def __init__(self, syst_dtype_names, xi1d=False):
+    def __init__(
+            self, syst_dtype_names, model_ions=["Si-II", "Si-III", "O-I"],
+            xi1d=False
+    ):
         super().__init__()
         self._models = {
             'lya': LyaP1DArinyoModel(),
-            'ion': IonModel(),
+            'ion': IonModel(model_ions=model_ions),
             # 'reso': ResolutionModel(add_reso_bias, add_var_reso),
             # 'noise': NoiseModel()
         }
@@ -613,7 +616,7 @@ class CombinedModel(Model):
             self._dv = np.mean(kedges[1] - kedges[0]) / _NSUB_K_
 
             N = int(np.round(64 * self._models['lya'].kfine.max() / self._dv))
-            self._k = np.fft.rfftfreq(N, d=self._dv)
+            self._k = 2 * np.pi * np.fft.rfftfreq(N, d=self._dv)
             # self._v = np.arange(N // 2) * dv
             self._reso = np.exp(-(self._k * Rkms)**2)
 
