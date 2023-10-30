@@ -63,7 +63,7 @@ class IonModel(Model):
         "O-I": [(1302.168, 0.0520)]
     }
 
-    PivotF = {"Si-II": 1.22, "Si-III": 1.67}
+    PivotF = {"Si-II": 1.22, "Si-III": 1.67, "O-I": 0.0520}
     VMax = LIGHT_SPEED * np.log(1180. / 1050.)
 
     def _setConstA2Terms(self):
