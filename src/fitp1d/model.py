@@ -55,16 +55,21 @@ class Model():
 
 class IonModel(Model):
     Transitions = {
-        "Si-II": [(1190.42, 2.77e-01), (1193.28, 5.75e-01),
-                  (1194.50, 7.37e-01), (1197.39, 1.50e-01)],
-        "Si-III": [(1206.53, 1.52e+00), (1207.52, 5.30e-01)]
+        "Si-II": [
+            (1190.42, 0.277), (1193.28, 0.575), (1260.42, 1.22),
+            (1304.37, 0.0928), (1526.72, 0.133)
+        ],
+        "Si-III": [(1206.52, 1.67)],
+        "O-I": [(1302.168, 0.0520)]
     }
 
-    PivotF = {"Si-II": 7.37e-01, "Si-III": 1.52e+00}
+    PivotF = {"Si-II": 1.22, "Si-III": 1.67, "O-I": 0.0520}
+    VMax = LIGHT_SPEED * np.log(1180. / 1050.)
 
     def _setConstA2Terms(self):
         self._splines['const_a2'] = {}
-        for ion, transitions in IonModel.Transitions.items():
+        for ion in self._ions:
+            transitions = IonModel.Transitions[ion]
             self._splines['const_a2'][f"a_{ion}"] = 0
             fpivot = IonModel.PivotF[ion]
 
@@ -75,12 +80,15 @@ class IonModel(Model):
         self._splines['linear_a'] = {}
 
         karr = np.linspace(kmin, kmax, nkpoints)
-        for ion, transitions in IonModel.Transitions.items():
+        for ion in self._ions:
+            transitions = IonModel.Transitions[ion]
             result = np.zeros(nkpoints)
             fpivot = IonModel.PivotF[ion]
 
             for wave, fn in transitions:
                 vn = LIGHT_SPEED * np.log(LYA_WAVELENGTH / wave)
+                if vn > self._vmax:
+                    continue
                 r = fn / fpivot
                 result += 2 * r * np.cos(karr * vn)
 
@@ -90,12 +98,15 @@ class IonModel(Model):
         self._splines['oneion_a2'] = {}
 
         karr = np.linspace(kmin, kmax, nkpoints)
-        for ion, transitions in IonModel.Transitions.items():
+        for ion in self._ions:
+            transitions = IonModel.Transitions[ion]
             result = np.zeros(nkpoints)
             fpivot = IonModel.PivotF[ion]
 
             for p1, p2 in itertools.combinations(transitions, 2):
                 vmn = np.abs(LIGHT_SPEED * np.log(p2[0] / p1[0]))
+                if vmn > self._vmax:
+                    continue
                 r = (p1[1] / fpivot) * (p2[1] / fpivot)
                 result += 2 * r * np.cos(karr * vmn)
 
@@ -105,8 +116,7 @@ class IonModel(Model):
         self._splines['twoion_a2'] = {}
 
         karr = np.linspace(kmin, kmax, nkpoints)
-        ions = list(IonModel.Transitions.keys())
-        for i1, i2 in itertools.combinations(ions, 2):
+        for i1, i2 in itertools.combinations(self._ions, 2):
             result = np.zeros(nkpoints)
             t1 = IonModel.Transitions[i1]
             t2 = IonModel.Transitions[i2]
@@ -115,20 +125,29 @@ class IonModel(Model):
 
             for (p1, p2) in itertools.product(t1, t2):
                 vmn = np.abs(LIGHT_SPEED * np.log(p2[0] / p1[0]))
+                if vmn > self._vmax:
+                    continue
                 r = (p1[1] / fp1) * (p2[1] / fp2)
                 result += 2 * r * np.cos(karr * vmn)
 
             self._splines['twoion_a2'][f"a_{i1}-a_{i2}"] = \
                 CubicSpline(karr, result)
 
-    def __init__(self):
+    def __init__(self, model_ions=["Si-II", "Si-III"], vmax=0):
         super().__init__()
-        self.names = ["a_Si-II", "a_Si-III"]
+        self._ions = model_ions.copy()
+        self.names = [f"a_{ion}" for ion in model_ions]
         self._name_combos = itertools.combinations(self.names, 2)
         self.param_labels = {
             "a_Si-II": r"a-{\mathrm{Si~II}}",
-            "a_Si-III": r"a-{\mathrm{Si~III}}"
+            "a_Si-III": r"a-{\mathrm{Si~III}}",
+            "a_O-I": r"a-{\mathrm{O~I}}"
         }
+
+        if vmax > 0:
+            self._vmax = IonModel.VMax
+        else:
+            self._vmax = vmax
 
         self.initial = {k: 1e-2 for k in self.names}
         self.boundary = {k: (-1, 1) for k in self.names}
@@ -141,6 +160,30 @@ class IonModel(Model):
         self._setLinearATerms()
         self._setOneionA2Terms()
         self._setTwoionA2Terms()
+
+    def getAllVelocitySeparations(self):
+        vseps = {}
+
+        for ion, transitions in IonModel.Transitions.items():
+            for wave, fn in transitions:
+                key = f'Lya-{ion} ({wave:.0f})'
+                vseps[key] = LIGHT_SPEED * np.log(LYA_WAVELENGTH / wave)
+
+        for ion, transitions in IonModel.Transitions.items():
+            for p1, p2 in itertools.combinations(transitions, 2):
+                key = f'{ion} ({p1[0]:.0f}-{p2[0]:.0f})'
+                vseps[key] = np.abs(LIGHT_SPEED * np.log(p2[0] / p1[0]))
+
+        ions = list(IonModel.Transitions.keys())
+        for i1, i2 in itertools.combinations(ions, 2):
+            t1 = IonModel.Transitions[i1]
+            t2 = IonModel.Transitions[i2]
+
+            for (p1, p2) in itertools.product(t1, t2):
+                key = f"{i1} ({p1[0]:.0f}) - {i2} ({p2[0]:.0f})"
+                vseps[key] = np.abs(LIGHT_SPEED * np.log(p2[0] / p1[0]))
+
+        return vseps
 
     def integrate(self, kedges):
         k1, k2 = kedges
@@ -186,6 +229,27 @@ class IonModel(Model):
         for term in ['linear_a', 'oneion_a2', 'twoion_a2']:
             for ionkey, interp in self._splines[term].items():
                 self._integrated_model[term][ionkey] = interp(kfine)
+
+    def evaluate(self, k, **kwargs):
+        result = np.zeros_like(self.kfine)
+
+        for key in self.names:
+            asi = kwargs[key]
+            result += asi * self._splines['linear_a'][key](k)
+            result += (
+                self._splines['const_a2'][key](k)
+                + self._splines['oneion_a2'][key](k)
+            ) * asi**2
+
+        for (key1, key2) in self._name_combos:
+            a1 = kwargs[key1]
+            a2 = kwargs[key2]
+            m = self._splines['twoion_a2'][f"{key1}-{key2}"](k)
+            result += a1 * a2 * m
+
+        result += 1
+
+        return result
 
 
 class ResolutionModel(Model):
@@ -377,7 +441,7 @@ class LyaP1DArinyoModel(Model):
             'kp': (1., 50.)
         }
 
-        self._kperp, self._dlnkperp = np.linspace(-4, 3, 1000, retstep=True)
+        self._kperp, self._dlnkperp = np.linspace(-4, 3, 700, retstep=True)
         self._kperp = np.exp(self._kperp)[:, np.newaxis, np.newaxis]
         self._kperp2pi = self._kperp**2 / (2 * np.pi)
 
@@ -406,7 +470,10 @@ class LyaP1DArinyoModel(Model):
 
         camb_params = camb.set_params(
             redshifts=[z],
-            WantTransfer=True, kmax=1e4,
+            WantCls=False, WantScalars=False,
+            WantTensors=False, WantVectors=False,
+            WantDerivedParameters=False,
+            WantTransfer=True, kmax=20,
             omch2=Planck18.Odm0 * Planck18.h**2,
             ombh2=Planck18.Ob0 * Planck18.h**2,
             omk=0.,
