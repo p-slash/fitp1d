@@ -237,7 +237,7 @@ class IonModel(Model):
             asi = kwargs[key]
             result += asi * self._splines['linear_a'][key](k)
             result += (
-                self._splines['const_a2'][key](k)
+                self._splines['const_a2'][key]
                 + self._splines['oneion_a2'][key](k)
             ) * asi**2
 
