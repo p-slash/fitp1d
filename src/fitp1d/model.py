@@ -87,10 +87,14 @@ class IonModel(Model):
 
             for wave, fn in transitions:
                 vn = np.abs(LIGHT_SPEED * np.log(LYA_WAVELENGTH / wave))
+
                 if vn > self._vmax:
                     continue
+
                 r = fn / fpivot
                 result += 2 * r * np.cos(karr * vn)
+
+                print(f"_setLinearATerms({ion}, {wave}): {vn:.0f}")
 
             self._splines['linear_a'][f"a_{ion}"] = CubicSpline(karr, result)
 
@@ -105,10 +109,14 @@ class IonModel(Model):
 
             for p1, p2 in itertools.combinations(transitions, 2):
                 vmn = np.abs(LIGHT_SPEED * np.log(p2[0] / p1[0]))
+
                 if vmn > self._vmax:
                     continue
+
                 r = (p1[1] / fpivot) * (p2[1] / fpivot)
                 result += 2 * r * np.cos(karr * vmn)
+
+                print(f"_setOneionA2Terms({ion}, {p1[0]}, {p2[0]}): {vmn:.0f}")
 
             self._splines['oneion_a2'][f"a_{ion}"] = CubicSpline(karr, result)
 
@@ -134,6 +142,7 @@ class IonModel(Model):
                 r = (p1[1] / fp1) * (p2[1] / fp2)
                 result += 2 * r * np.cos(karr * vmn)
                 all_zero = False
+                print(f"_setTwoionA2Terms({i1}, {p1[0]}, {i2}, {p2[0]}): {vmn:.0f}")
 
             if all_zero:
                 continue
@@ -603,7 +612,7 @@ class CombinedModel(Model):
             Rkms = LIGHT_SPEED * 0.8 / (1 + z) / LYA_WAVELENGTH
             self._dv = np.mean(kedges[1] - kedges[0]) / _NSUB_K_
 
-            N = int(np.round(1024 * self._models['lya'].kfine.max() / self._dv))
+            N = int(np.round(64 * self._models['lya'].kfine.max() / self._dv))
             self._k = np.fft.rfftfreq(N, d=self._dv)
             # self._v = np.arange(N // 2) * dv
             self._reso = np.exp(-(self._k * Rkms)**2)
