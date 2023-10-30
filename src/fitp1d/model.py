@@ -397,6 +397,15 @@ class LyaP1DSimpleModel(Model):
 
         return result
 
+    def evaluate(self, k, **kwargs):
+        A, n, alpha, B, beta, k1 = (
+            kwargs['A'], kwargs['n'], kwargs['alpha'], kwargs['B'],
+            kwargs['beta'], kwargs['k1']
+        )
+
+        return evaluatePD13Lorentz(
+            k, self.z, A, n, alpha, B, beta, k1)
+
 
 class FiducialCorrectionModel(LyaP1DSimpleModel):
     def __init__(self, *args):
@@ -537,7 +546,7 @@ class CombinedModel(Model):
             self.boundary |= M.boundary
             self.prior |= M.prior
 
-    def __init__(self, syst_dtype_names):
+    def __init__(self, syst_dtype_names, xi1d=False):
         super().__init__()
         self._models = {
             'lya': LyaP1DArinyoModel(),
@@ -546,7 +555,11 @@ class CombinedModel(Model):
             # 'noise': NoiseModel()
         }
 
+        self._xi1d = xi1d
         self._syst_models = []
+
+        if xi1d and syst_dtype_names:
+            raise Exception("Xi1D is not supported with systematics.")
 
         for name in syst_dtype_names:
             if not name.endswith("_syst"):
@@ -586,6 +599,17 @@ class CombinedModel(Model):
 
     def cache(self, kedges, z, data):
         self._models['lya'].cache(kedges, z)
+        if self._xi1d:
+            Rkms = LIGHT_SPEED * 0.8 / (1 + z) / LYA_WAVELENGTH
+            dv = np.mean(kedges[1] - kedges[0])
+
+            N = int(np.round(8 * self._models['lya'].kfine.max() / dv))
+            self._k = np.fft.rfftfreq(N, d=dv)
+            # self._v = np.arange(N // 2) * dv
+            self._reso = np.exp(-(self._k * Rkms)**2)
+
+            return
+
         kfine = self._models['lya'].kfine
         self._models['ion'].cache(kfine)
 
@@ -610,3 +634,11 @@ class CombinedModel(Model):
             result -= m.getCachedModel(**kwargs)
 
         return result
+
+    def getIntegratedModelXi1D(self, **kwargs):
+        result = self._models['lya'].evaluate(self._k, **kwargs)
+        result *= self._models['ion'].evaluate(self._k, **kwargs)
+        result *= self._reso
+        xi1d = np.fft.irfft(result)[:self.ndata * _NSUB_K_]
+        xi1d = xi1d.reshape(self.ndata, _NSUB_K_).mean(axis=1)
+        return xi1d
