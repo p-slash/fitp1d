@@ -35,7 +35,7 @@ def oneSample(fpl, label, fixed_params, args, comm, fix_cosmo=False):
     fpl.releaseAll()
     fpl.setMinimizer()
     if fix_cosmo:
-        fpl.fixedCosmology()
+        fpl.fixCosmology()
     for c in fixed_params:
         fpl.fixParam(c, fpl.initial[c])
 
