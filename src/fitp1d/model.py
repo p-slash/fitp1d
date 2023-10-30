@@ -126,8 +126,10 @@ class IonModel(Model):
 
             for (p1, p2) in itertools.product(t1, t2):
                 vmn = np.abs(LIGHT_SPEED * np.log(p2[0] / p1[0]))
+
                 if vmn > self._vmax:
                     continue
+
                 r = (p1[1] / fp1) * (p2[1] / fp2)
                 result += 2 * r * np.cos(karr * vmn)
                 all_zero = False
@@ -152,9 +154,9 @@ class IonModel(Model):
         }
 
         if vmax > 0:
-            self._vmax = IonModel.VMax
-        else:
             self._vmax = vmax
+        else:
+            self._vmax = IonModel.VMax
 
         self.initial = {k: 1e-2 for k in self.names}
         self.boundary = {k: (-1, 1) for k in self.names}
