@@ -360,9 +360,7 @@ class LyaP1DSimpleModel(Model):
     def __init__(self):
         super().__init__()
 
-        self.names = [
-            'A', 'n', 'alpha', 'B', 'beta', 'k1'
-        ]
+        self.names = ['A', 'n', 'alpha', 'B', 'beta', 'k1']
 
         self.initial = {
             'A': PDW_FIT_AMP,
@@ -378,11 +376,10 @@ class LyaP1DSimpleModel(Model):
             "B": "B", "beta": r"\beta", "k1": r"k_1"
         }
 
-        for par in self.names:
-            x1, x2 = -100, 100
-            if par == "k1":
-                x1, x2 = 1e-6, 2e6
-            self.boundary[par] = (x1, x2)
+        self.boundary = {
+            "A": (0, 100), "n": (-10, 0), "alpha": (-10, 0),
+            "B": (-10, 10), "beta": (-10, 10), "k1": (1e-6, np.inf)
+        }
 
         self.z = None
         self.kfine = None
