@@ -744,6 +744,7 @@ class CombinedModel(Model):
         self._models['poly'] = PolynomialModel(n)
         varr = (np.arange(self.ndata) * self._dv) / 5000.
         self._models['poly'].cache(varr)
+        self._setAttr()
 
     # def setNoiseModel(self, p_noise):
     #     self._models['noise'].cache(p_noise)
