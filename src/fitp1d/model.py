@@ -394,7 +394,7 @@ class PolynomialModel(Model):
         marg = np.zeros_like(x)
 
         for i in range(self.order):
-            marg += kwargs[f'C{i}'] * x**i
+            marg += kwargs[f'PMC{i}'] * x**i
 
         return marg
 
