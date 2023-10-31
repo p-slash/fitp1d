@@ -559,6 +559,16 @@ class LyaP1DArinyoModel(Model):
             khs, pk, bc_type='natural', extrapolate=True
         )
 
+    def fixCosmology(self, **kwargs):
+        _cosmo_params = kwargs.copy()
+        for key in self._cosmo_params:
+            if key in _cosmo_params:
+                continue
+            _cosmo_params[key] = self.initial[key]
+
+        self.newCambInterp(**_cosmo_params)
+        self.fixedCosmology = True
+
     def newKandP(self, k1d_skm, **kwargs):
         H0, Ode0 = kwargs['H0'], kwargs['Ode0']
         if k1d_skm is None:
@@ -667,16 +677,20 @@ class CombinedModel(Model):
         self._models.pop('fid', None)
         self._additive_corrections = 0
 
+    def fixCosmology(self, **kwargs):
+        self._models['lya'].fixCosmology(**kwargs)
+
     # def setNoiseModel(self, p_noise):
     #     self._models['noise'].cache(p_noise)
 
-    def cache(self, kedges, z, data):
+    def cache(self, kedges, z, data, kfund_mult=16):
         self._models['lya'].cache(kedges, z)
         if self._xi1d:
             Rkms = LIGHT_SPEED * 0.8 / (1 + z) / LYA_WAVELENGTH
             self._dv = np.mean(kedges[1] - kedges[0]) / _NSUB_K_
 
-            N = int(np.round(64 * self._models['lya'].kfine.max() / self._dv))
+            N = int(np.round(
+                kfund_mult * self._models['lya'].kfine.max() / self._dv))
             self._k = 2 * np.pi * np.fft.rfftfreq(N, d=self._dv)
             # self._v = np.arange(N // 2) * dv
             self._reso = np.exp(-(self._k * Rkms)**2)
