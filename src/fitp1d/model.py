@@ -651,12 +651,14 @@ class CombinedModel(Model):
 
     def __init__(
             self, syst_dtype_names, model_ions=["Si-II", "Si-III", "O-I"],
-            xi1d=False
+            per_transition_bias=False, xi1d=False
     ):
         super().__init__()
         self._models = {
             'lya': LyaP1DArinyoModel(),
-            'ion': IonModel(model_ions=model_ions),
+            'ion': IonModel(
+                model_ions=model_ions, per_transition_bias=per_transition_bias
+            ),
             # 'reso': ResolutionModel(add_reso_bias, add_var_reso),
             # 'noise': NoiseModel()
         }
