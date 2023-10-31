@@ -5,8 +5,6 @@ import camb
 import numpy as np
 from scipy.interpolate import CubicSpline
 
-from fitp1d.forecast import getHubbleZ
-
 LYA_WAVELENGTH = 1215.67
 LIGHT_SPEED = 299792.458
 
@@ -46,6 +44,10 @@ def evaluatePD13Lorentz(k, z, A, n, alpha, B, beta, k1):
         result *= np.power(q0, beta * np.log(x0)) * np.power(x0, B)
 
     return result
+
+
+def getHubbleZ(z, H0, Ode0):
+    return H0 * np.sqrt(Ode0 + (1 - Ode0) * (1 + z)**3)
 
 
 class Model():
