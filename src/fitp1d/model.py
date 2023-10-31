@@ -77,7 +77,7 @@ class IonModel(Model):
         for ion in self._ions:
             transitions = self._transitions[ion]
             self._splines['const_a2'][f"a_{ion}"] = 0
-            fpivot = IonModel.PivotF[ion]
+            fpivot = self._pivots[ion]
 
             for wave, fn in transitions:
                 self._splines['const_a2'][f"a_{ion}"] += (fn / fpivot)**2
@@ -173,7 +173,7 @@ class IonModel(Model):
                 if ion not in model_ions:
                     continue
 
-                for wave, fp in transitions.items():
+                for wave, fp in transitions:
                     key = f"{ion} ({wave:.0f})"
                     self._transitions[key] = (wave, fp)
                     self._pivots[key] = fp
