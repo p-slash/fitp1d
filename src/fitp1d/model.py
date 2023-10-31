@@ -164,7 +164,7 @@ class IonModel(Model):
     ):
         super().__init__()
         if per_transition_bias:
-            self.ions = []
+            self._ions = []
             self._transitions = {}
             self.param_labels = {}
             self._pivots = {}
@@ -177,7 +177,7 @@ class IonModel(Model):
                     key = f"{ion} ({wave:.0f})"
                     self._transitions[key] = (wave, fp)
                     self._pivots[key] = fp
-                    self.ions.append(key)
+                    self._ions.append(key)
                     self.param_labels[f"a_{key}"] = f"a-{key}"
         else:
             self._ions = model_ions.copy()
@@ -189,7 +189,7 @@ class IonModel(Model):
             self._transitions = IonModel.Transitions.copy()
             self._pivots = IonModel.PivotF.copy()
 
-        self.names = [f"a_{ion}" for ion in list(self._transitions.keys())]
+        self.names = [f"a_{ion}" for ion in self._ions]
         self._name_combos = []
 
         if vmax > 0:
