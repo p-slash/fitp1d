@@ -393,13 +393,13 @@ class PolynomialModel(Model):
 
         marg = np.zeros_like(x)
 
-        for i in range(self.order):
-            marg += kwargs[f'PMC{i}'] * x**i
+        for n in range(self.order):
+            marg += kwargs[f'PMC{n}'] * x**n
 
         return marg
 
     def getCachedModel(self, **kwargs):
-        return self.evaluate(self._x)
+        return self.evaluate(self._x, **kwargs)
 
 
 class ScalingSystematicsModel(Model):
