@@ -66,10 +66,12 @@ class IonModel(Model):
             (1304.37, 0.0928), (1526.72, 0.133)
         ],
         "Si-III": [(1206.52, 1.67)],
-        "O-I": [(1302.168, 0.0520)]
+        "Si-IV": [(1393.76, 0.513), (1402.77, 0.255)],
+        "O-I": [(1302.168, 0.0520)], "C-II": [(1334.5323, 0.129)],
+        "C-IV": [(1548.202, 0.190), (1550.774, 0.0952)]
     }
 
-    PivotF = {"Si-II": 1.22, "Si-III": 1.67, "O-I": 0.0520}
+    PivotF = {"Si-II": 1.22, "Si-III": 1.67, "O-I": 0.0520, "C-II": 0.129}
     VMax = LIGHT_SPEED * np.log(1180. / 1050.) / 2.
 
     def _setConstA2Terms(self):
@@ -184,7 +186,9 @@ class IonModel(Model):
             self.param_labels = {
                 "a_Si-II": r"a-{\mathrm{Si~II}}",
                 "a_Si-III": r"a-{\mathrm{Si~III}}",
-                "a_O-I": r"a-{\mathrm{O~I}}"
+                "a_Si-IV": r"a-{\mathrm{Si~IV}}",
+                "a_O-I": r"a-{\mathrm{O~I}}", "a_C-II": r"a-{\mathrm{C~II}}",
+                "a_C-IV": r"a-{\mathrm{C~IV}}"
             }
             self._transitions = IonModel.Transitions.copy()
             self._pivots = IonModel.PivotF.copy()
