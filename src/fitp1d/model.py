@@ -448,13 +448,14 @@ class LyaP1DArinyoModel(Model):
         super().__init__()
 
         self._cosmo_names = ['ln10As', 'ns', 'mnu', 'Ode0', 'H0']
-        self.names = ['blya', 'bbeta', 'q1', '10kv', 'av', 'bv', 'kp']
+        self.names = self._cosmo_names + [
+            'blya', 'bbeta', 'q1', '10kv', 'av', 'bv', 'kp']
 
         self.initial = {
             'blya': -0.2,
             'bbeta': -0.334,
             'q1': 0.65,
-            'kv': 8.,
+            '10kv': 8.,
             'av': 0.5,
             'bv': 1.55,
             'kp': 13.0,
@@ -505,14 +506,14 @@ class LyaP1DArinyoModel(Model):
         self.fixedCosmology = False
         self._cosmo_interp = None
 
-    def cacheZAndK(self, kedges, z):
+    def cache(self, kedges, z):
         assert isinstance(kedges, tuple)
 
         if self.z is not None and np.isclose(self.z, z):
             return
 
         k1, k2 = kedges
-        self.kfine = np.linspace(k1, k2, _NSUB_K_, endpoint=False).T
+        self.kfine = np.linspace(k1, k2, _NSUB_K_, endpoint=False).T.ravel()
         self.ndata = k1.size
         self.z = z
 
@@ -541,6 +542,7 @@ class LyaP1DArinyoModel(Model):
         khs, _, pk = camb_results.get_linear_matter_power_spectrum(
             nonlinear=False, hubble_units=False)
         khs *= h
+        pk = pk[0]
         np.log(pk, out=pk)
         np.log(khs, out=khs)
 
@@ -548,10 +550,10 @@ class LyaP1DArinyoModel(Model):
         logextrap = np.log(2 * LyaP1DArinyoModel.CAMB_KMAX)
         delta = logextrap - khs[-1]
 
-        pk0 = pk[:, -1]
-        dlog = (pk0 - pk[:, -2]) / (khs[-1] - khs[-2])
-        pk = np.column_stack((pk, pk0 + dlog * delta * 0.9, pk0 + dlog * delta))
-        khs = np.hstack((khs, logextrap - delta * 0.1, logextrap))
+        pk0 = pk[-1]
+        dlog = (pk0 - pk[-2]) / (khs[-1] - khs[-2])
+        pk = np.append(pk, [pk0 + dlog * delta * 0.9, pk0 + dlog * delta])
+        khs = np.append(khs, [logextrap - delta * 0.1, logextrap])
 
         self._cosmo_interp = CubicSpline(
             khs, pk, bc_type='natural', extrapolate=True
@@ -560,11 +562,11 @@ class LyaP1DArinyoModel(Model):
     def newKandP(self, k1d_skm, **kwargs):
         H0, Ode0 = kwargs['H0'], kwargs['Ode0']
         if k1d_skm is None:
-            k1d_skm = self.kfine
+            k1d_skm = self.kfine[np.newaxis, :]
 
         self.Mpc2kms = getHubbleZ(self.z, H0, Ode0) / (1 + self.z)
 
-        _k1d_Mpc = (k1d_skm * self.Mpc2kms)[np.newaxis, :]
+        _k1d_Mpc = k1d_skm * self.Mpc2kms
         self._k3d_Mpc = np.sqrt(self._kperp**2 + _k1d_Mpc**2)
         self._mu = _k1d_Mpc / self._k3d_Mpc
 
@@ -596,7 +598,7 @@ class LyaP1DArinyoModel(Model):
     def getCachedModel(self, **kwargs):
         p3d_flux = self.evaluateP3D(**kwargs) * self._kperp2pi
         p1d_kms = self.Mpc2kms * np.trapz(p3d_flux, dx=self._dlnkperp, axis=0)
-        return p1d_kms
+        return p1d_kms.reshape(self.ndata, _NSUB_K_)
 
 
 class CombinedModel(Model):
