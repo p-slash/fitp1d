@@ -7,7 +7,7 @@ from getdist import MCSamples
 from scipy.interpolate import CubicSpline
 
 from fitp1d.data import DetailedData
-import fitp1d.model
+from fitp1d.model import Model, _NSUB_K_, LIGHT_SPEED, LYA_WAVELENGTH
 
 
 def getHubbleZ(z, H0, Ode0):
@@ -61,7 +61,7 @@ def plotEllipse(
     ax.set_ylabel(fpl.param_labels[key2])
 
 
-class LyaP1DArinyoModel2(fitp1d.model.Model):
+class LyaP1DArinyoModel2(Model):
     CAMB_KMAX = 2e2
     CAMB_KMIN = 1e-3
 
@@ -160,7 +160,7 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
         self._p3dlin = []
         self._Delta2 = []
         for i, (k1, k2) in enumerate(self.kedges_tuple_list):
-            shape = (self._kperp.shape[0], k1.size, fitp1d.model._NSUB_K_)
+            shape = (self._kperp.shape[0], k1.size, _NSUB_K_)
             self._k3d_Mpc.append(np.empty(shape))
             self._mu.append(np.empty(shape))
             self._p3dlin.append(np.empty(shape))
@@ -187,7 +187,7 @@ class LyaP1DArinyoModel2(fitp1d.model.Model):
 
         # 2.3 ms
         for i, (k1, k2) in enumerate(self.kedges_tuple_list):
-            kfine = np.linspace(k1, k2, fitp1d.model._NSUB_K_, endpoint=False).T
+            kfine = np.linspace(k1, k2, _NSUB_K_, endpoint=False).T
             _k1d_Mpc = (kfine * self.Mpc2kms[i])[np.newaxis, :]
             self._k3d_Mpc[i][:] = self._kperp**2 + _k1d_Mpc**2
             np.sqrt(self._k3d_Mpc[i], out=self._k3d_Mpc[i])
@@ -271,9 +271,9 @@ class P1DLikelihood2():
             self.psdata.setCovariance(cov)
 
         rkms = (
-            fitp1d.model.LIGHT_SPEED * 0.8
+            LIGHT_SPEED * 0.8
             / (1 + self.psdata.data_table['z'])
-            / fitp1d.model.LYA_WAVELENGTH
+            / LYA_WAVELENGTH
         )
         kmax = np.pi / rkms / 2
 
