@@ -175,7 +175,7 @@ class IonModel(Model):
 
                 for wave, fp in transitions:
                     key = f"{ion} ({wave:.0f})"
-                    self._transitions[key] = (wave, fp)
+                    self._transitions[key] = [(wave, fp)]
                     self._pivots[key] = fp
                     self._ions.append(key)
                     self.param_labels[f"a_{key}"] = f"a-{key}"
@@ -365,6 +365,41 @@ class NoiseModel(Model):
 
     def getCachedModel(self, **kwargs):
         return kwargs['eta_noise'] * self._cached_noise
+
+
+class PolynomialModel(Model):
+    def __init__(self, order):
+        super().__init__()
+        self.order = order
+
+        if order < 0:
+            return
+
+        for n in range(order):
+            key = f"PMC{n}"
+            self.names.append(key)
+            self.initial[key] = 0.
+            self.param_labels[key] = key
+            self.boundary[key] = (-10., 10.)
+
+        self._x = None
+
+    def cache(self, x):
+        self._x = x.copy()
+
+    def evaluate(self, x, **kwargs):
+        if self.order < 0:
+            return 0
+
+        marg = np.zeros_like(x)
+
+        for i in range(self.order):
+            marg += kwargs[f'C{i}'] * x**i
+
+        return marg
+
+    def getCachedModel(self, **kwargs):
+        return self.evaluate(self._x)
 
 
 class ScalingSystematicsModel(Model):
@@ -705,6 +740,11 @@ class CombinedModel(Model):
     def fixCosmology(self, **kwargs):
         self._models['lya'].fixCosmology(**kwargs)
 
+    def addPolynomialXi1dTerms(self, n):
+        self._models['poly'] = PolynomialModel(n)
+        varr = (np.arange(self.ndata) * self._dv) / 5000.
+        self._models['poly'].cache(varr)
+
     # def setNoiseModel(self, p_noise):
     #     self._models['noise'].cache(p_noise)
 
@@ -717,7 +757,6 @@ class CombinedModel(Model):
             N = int(np.round(
                 kfund_mult * self._models['lya'].kfine.max() / self._dv))
             self._k = 2 * np.pi * np.fft.rfftfreq(N, d=self._dv)
-            # self._v = np.arange(N // 2) * dv
             self._reso = np.exp(-(self._k * Rkms)**2)
 
             return
@@ -753,4 +792,8 @@ class CombinedModel(Model):
         result *= self._reso
         xi1d = np.fft.irfft(result)[:self.ndata * _NSUB_K_] / self._dv
         xi1d = xi1d.reshape(self.ndata, _NSUB_K_).mean(axis=1)
+
+        if 'poly' in self._models:
+            xi1d += self._models['poly'].getCachedModel(**kwargs)
+
         return xi1d
