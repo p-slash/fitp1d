@@ -1,7 +1,11 @@
 import itertools
 
+from astropy.cosmology import Planck18
+import camb
 import numpy as np
 from scipy.interpolate import CubicSpline
+
+from fitp1d.forecast import getHubbleZ
 
 LYA_WAVELENGTH = 1215.67
 LIGHT_SPEED = 299792.458
@@ -435,38 +439,56 @@ class FiducialCorrectionModel(LyaP1DSimpleModel):
 
 
 class LyaP1DArinyoModel(Model):
+    CAMB_KMAX = 2e2
+    CAMB_KMIN = 1e-3
+
     def __init__(self):
         super().__init__()
 
-        self.names = ['blya', 'beta', 'q1', 'kv', 'av', 'bv', 'kp']
+        self._cosmo_names = ['ln10As', 'ns', 'mnu', 'Ode0', 'H0']
+        self.names = ['blya', 'bbeta', 'q1', '10kv', 'av', 'bv', 'kp']
 
         self.initial = {
             'blya': -0.2,
-            'beta': 1.67,
+            'bbeta': -0.334,
             'q1': 0.65,
-            'kv': 0.8,
+            'kv': 8.,
             'av': 0.5,
             'bv': 1.55,
-            'kp': 13.0
+            'kp': 13.0,
+            'ln10As': 3.044,
+            'ns': Planck18.meta['n'],
+            'mnu': 8.,
+            'Ode0': Planck18.Ode0,
+            'H0': Planck18.H0.value
         }
 
         self.param_labels = {
-            "blya": r"b_\mathrm{Lya}", "beta": r"\beta_\mathrm{Lya}",
-            "q1": r"q_1", "kv": r"k_\nu", "av": r"a_\nu", "bv": r"b_\nu",
-            "kp": r"k_p"
+            "blya": r"b_\mathrm{Lya}", "bbeta": r"b\beta_\mathrm{Lya}",
+            "q1": r"$q_1$", "10kv": r"$k_\nu$ [$10^{-1}~$Mpc]", "av": r"$a_\nu$",
+            "bv": r"$b_\nu$", "kp": r"$k_p$ [Mpc]", "ln10As": r"$\ln(10^{10} A_s)$",
+            "ns": r"$n_s$", "mnu": r"$\sum m_\nu$ [$10^{-2}~$eV]",
+            "Ode0": r"$\Omega_\Lambda$", "H0": r"$H_0$ [km s$^{-1}$ Mpc$^{-1}$]"
         }
 
         self.boundary = {
-            'blya': (-1, 0),
-            'beta': (0.5, 2.5),
+            'blya': (-5, 0),
+            'bbeta': (-5, 0),
             'q1': (0.1, 5.),
-            'kv': (0.1, 5.),
+            '10kv': (0., 50.),
             'av': (0.1, 5.),
             'bv': (0.1, 5.),
-            'kp': (1., 50.)
+            'kp': (1., 50.),
+            'ln10As': (2., 4.),
+            'ns': (0.94, 1.),
+            'mnu': (0., 50.),
+            'Ode0': (0.5, 0.9),
+            'H0': (50., 100.)
         }
 
-        self._kperp, self._dlnkperp = np.linspace(-4, 3, 700, retstep=True)
+        self._kperp, self._dlnkperp = np.linspace(
+            np.log(LyaP1DArinyoModel.CAMB_KMIN),
+            np.log(LyaP1DArinyoModel.CAMB_KMAX), 500, retstep=True)
         self._kperp = np.exp(self._kperp)[:, np.newaxis, np.newaxis]
         self._kperp2pi = self._kperp**2 / (2 * np.pi)
 
@@ -478,8 +500,10 @@ class LyaP1DArinyoModel(Model):
         self._mu = None
         self.Mpc2kms = None
         self.ndata = None
+        self.fixedCosmology = False
+        self._cosmo_interp = None
 
-    def cache(self, kedges, z):
+    def cacheZAndK(self, kedges, z):
         assert isinstance(kedges, tuple)
 
         if self.z is not None and np.isclose(self.z, z):
@@ -490,51 +514,87 @@ class LyaP1DArinyoModel(Model):
         self.ndata = k1.size
         self.z = z
 
-        import camb
-        from astropy.cosmology import Planck18
+        # shape = (self._kperp.shape[0], k1.size, _NSUB_K_)
+
+    def newCambInterp(self, **kwargs):
+        H0, Ode0 = kwargs['H0'], kwargs['Ode0']
+        h = H0 / 100.
 
         camb_params = camb.set_params(
-            redshifts=[z],
+            redshifts=[self.z],
             WantCls=False, WantScalars=False,
             WantTensors=False, WantVectors=False,
             WantDerivedParameters=False,
-            WantTransfer=True, kmax=20,
-            omch2=Planck18.Odm0 * Planck18.h**2,
-            ombh2=Planck18.Ob0 * Planck18.h**2,
+            WantTransfer=True,
+            omch2=(1 - Ode0 - Planck18.Ob0) * h**2,
+            ombh2=Planck18.Ob0 * h**2,
             omk=0.,
-            H0=Planck18.H0.value,
-            ns=Planck18.meta['n']
+            H0=H0,
+            ns=kwargs['ns'],
+            As=np.exp(kwargs['ln10As']) * 1e-10,
+            mnu=kwargs['mnu'] / 100.
         )
         camb_results = camb.get_results(camb_params)
 
-        camb_interp = camb_results.get_matter_power_interpolator(
-            nonlinear=False,
-            hubble_units=False,
-            k_hunit=False)
+        khs, _, pk = camb_results.get_linear_matter_power_spectrum(
+            nonlinear=False, hubble_units=False)
+        khs *= h
+        np.log(pk, out=pk)
+        np.log(khs, out=khs)
 
-        self.Mpc2kms = Planck18.H(z).value / (1 + z)
-        self._k1d_Mpc = self.kfine * self.Mpc2kms
-        self._k1d_Mpc = self._k1d_Mpc[np.newaxis, :]
-        self._k3d_Mpc = np.sqrt(self._kperp**2 + self._k1d_Mpc**2)
-        self._mu = self._k1d_Mpc / self._k3d_Mpc
-        self._p3dlin = camb_interp.P(z, self._k3d_Mpc)
+        # Add extrapolation data points as done in camb
+        logextrap = np.log(2 * LyaP1DArinyoModel.CAMB_KMAX)
+        delta = logextrap - khs[-1]
+
+        pk0 = pk[:, -1]
+        dlog = (pk0 - pk[:, -2]) / (khs[-1] - khs[-2])
+        pk = np.column_stack((pk, pk0 + dlog * delta * 0.9, pk0 + dlog * delta))
+        khs = np.hstack((khs, logextrap - delta * 0.1, logextrap))
+
+        self._cosmo_interp = CubicSpline(
+            khs, pk, bc_type='natural', extrapolate=True
+        )
+
+    def newKandP(self, k1d_skm, **kwargs):
+        H0, Ode0 = kwargs['H0'], kwargs['Ode0']
+        if k1d_skm is None:
+            k1d_skm = self.kfine
+
+        self.Mpc2kms = getHubbleZ(self.z, H0, Ode0) / (1 + self.z)
+
+        _k1d_Mpc = (k1d_skm * self.Mpc2kms)[np.newaxis, :]
+        self._k3d_Mpc = np.sqrt(self._kperp**2 + _k1d_Mpc**2)
+        self._mu = _k1d_Mpc / self._k3d_Mpc
+
+        self._p3dlin = np.exp(self._cosmo_interp(np.log(self._k3d_Mpc)))
         self._Delta2 = self._p3dlin * self._k3d_Mpc**3 / 2 / np.pi**2
 
-    def getP3D(self, **kwargs):
-        bias_rsd = (kwargs['blya'] * (1 + kwargs['beta'] * self._mu**2))**2
-        t1 = (
-            (self._k3d_Mpc / kwargs['kv'])**kwargs['av']
-            * self._mu**kwargs['bv']
-        )
-        t2 = (self._k3d_Mpc / kwargs['kp'])**2
-        Fnl = np.exp(kwargs['q1'] * self._Delta2 * (1 - t1) - t2)
+    def evaluateP3D(self, k1d_skm=None, **kwargs):
+        if not self.fixedCosmology:
+            self.newCambInterp(**kwargs)
+        if not self.fixedCosmology or k1d_skm is not None:
+            self.newKandP(k1d_skm, **kwargs)
 
-        return self._p3dlin * bias_rsd * Fnl
+        t1 = (
+            (self._k3d_Mpc / kwargs['10kv'])**kwargs['av']
+            * self._mu**kwargs['bv']
+        ) * 10**-kwargs['av']
+        t2 = (self._k3d_Mpc / kwargs['kp'])**2
+        p3d = np.exp(kwargs['q1'] * (1 - t1) - t2)
+        p3d *= self._p3dlin
+        p3d *= (kwargs['blya'] + kwargs['bbeta'] * self._mu**2)**2
+
+        return p3d
+
+    def evaluateP1D(self, k1d_skm, **kwargs):
+        p3d_flux = self.evaluateP3D(k1d_skm, **kwargs) * self._kperp2pi
+        p1d_kms = self.Mpc2kms * np.trapz(p3d_flux, dx=self._dlnkperp, axis=0)
+        return p1d_kms
 
     def getCachedModel(self, **kwargs):
-        p3d_flux = self.getP3D(**kwargs) * self._kperp2pi
-        p1d_Mpc = np.trapz(p3d_flux, dx=self._dlnkperp, axis=0)
-        return p1d_Mpc * self.Mpc2kms
+        p3d_flux = self.evaluateP3D(**kwargs) * self._kperp2pi
+        p1d_kms = self.Mpc2kms * np.trapz(p3d_flux, dx=self._dlnkperp, axis=0)
+        return p1d_kms
 
 
 class CombinedModel(Model):
