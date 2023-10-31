@@ -7,11 +7,8 @@ from getdist import MCSamples
 from scipy.interpolate import CubicSpline
 
 from fitp1d.data import DetailedData
-from fitp1d.model import Model, _NSUB_K_, LIGHT_SPEED, LYA_WAVELENGTH
-
-
-def getHubbleZ(z, H0, Ode0):
-    return H0 * np.sqrt(Ode0 + (1 - Ode0) * (1 + z)**3)
+from fitp1d.model import (
+    Model, _NSUB_K_, LIGHT_SPEED, LYA_WAVELENGTH, getHubbleZ)
 
 
 def plotEllipse(
