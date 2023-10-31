@@ -586,7 +586,7 @@ class LyaP1DArinyoModel(Model):
 
         return p3d
 
-    def evaluateP1D(self, k1d_skm, **kwargs):
+    def evaluate(self, k1d_skm, **kwargs):
         p3d_flux = self.evaluateP3D(k1d_skm, **kwargs) * self._kperp2pi
         p1d_kms = self.Mpc2kms * np.trapz(p3d_flux, dx=self._dlnkperp, axis=0)
         return p1d_kms
