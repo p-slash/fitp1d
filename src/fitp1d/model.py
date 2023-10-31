@@ -492,7 +492,7 @@ class LyaP1DArinyoModel(Model):
         self._kperp, self._dlnkperp = np.linspace(
             np.log(LyaP1DArinyoModel.CAMB_KMIN),
             np.log(LyaP1DArinyoModel.CAMB_KMAX), 500, retstep=True)
-        self._kperp = np.exp(self._kperp)[:, np.newaxis, np.newaxis]
+        self._kperp = np.exp(self._kperp)[:, np.newaxis]
         self._kperp2pi = self._kperp**2 / (2 * np.pi)
 
         self.z = None
