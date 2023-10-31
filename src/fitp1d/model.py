@@ -75,7 +75,7 @@ class IonModel(Model):
     def _setConstA2Terms(self):
         self._splines['const_a2'] = {}
         for ion in self._ions:
-            transitions = IonModel.Transitions[ion]
+            transitions = self._transitions[ion]
             self._splines['const_a2'][f"a_{ion}"] = 0
             fpivot = IonModel.PivotF[ion]
 
@@ -87,9 +87,9 @@ class IonModel(Model):
 
         karr = np.linspace(kmin, kmax, nkpoints)
         for ion in self._ions:
-            transitions = IonModel.Transitions[ion]
+            transitions = self._transitions[ion]
             result = np.zeros(nkpoints)
-            fpivot = IonModel.PivotF[ion]
+            fpivot = self._pivots[ion]
 
             for wave, fn in transitions:
                 vn = np.abs(LIGHT_SPEED * np.log(LYA_WAVELENGTH / wave))
@@ -109,9 +109,9 @@ class IonModel(Model):
 
         karr = np.linspace(kmin, kmax, nkpoints)
         for ion in self._ions:
-            transitions = IonModel.Transitions[ion]
+            transitions = self._transitions[ion]
             result = np.zeros(nkpoints)
-            fpivot = IonModel.PivotF[ion]
+            fpivot = self._pivots[ion]
 
             for p1, p2 in itertools.combinations(transitions, 2):
                 vmn = np.abs(LIGHT_SPEED * np.log(p2[0] / p1[0]))
@@ -134,10 +134,10 @@ class IonModel(Model):
         for i1, i2 in itertools.combinations(self._ions, 2):
             result = np.zeros(nkpoints)
             all_zero = True
-            t1 = IonModel.Transitions[i1]
-            t2 = IonModel.Transitions[i2]
-            fp1 = IonModel.PivotF[i1]
-            fp2 = IonModel.PivotF[i2]
+            t1 = self._transitions[i1]
+            t2 = self._transitions[i2]
+            fp1 = self._pivots[i1]
+            fp2 = self._pivots[i2]
 
             for (p1, p2) in itertools.product(t1, t2):
                 vmn = np.abs(LIGHT_SPEED * np.log(p2[0] / p1[0]))
@@ -158,16 +158,39 @@ class IonModel(Model):
 
         self._splines['twoion_a2'] = i2a2
 
-    def __init__(self, model_ions=["Si-II", "Si-III"], vmax=0):
+    def __init__(
+            self, model_ions=["Si-II", "Si-III"], vmax=0,
+            per_transition_bias=False
+    ):
         super().__init__()
-        self._ions = model_ions.copy()
-        self.names = [f"a_{ion}" for ion in model_ions]
+        if per_transition_bias:
+            self.ions = []
+            self._transitions = {}
+            self.param_labels = {}
+            self._pivots = {}
+
+            for ion, transitions in IonModel.Transitions.items():
+                if ion not in model_ions:
+                    continue
+
+                for wave, fp in transitions.items():
+                    key = f"{ion} ({wave:.0f})"
+                    self._transitions[key] = (wave, fp)
+                    self._pivots[key] = fp
+                    self.ions.append(key)
+                    self.param_labels[f"a_{key}"] = f"a-{key}"
+        else:
+            self._ions = model_ions.copy()
+            self.param_labels = {
+                "a_Si-II": r"a-{\mathrm{Si~II}}",
+                "a_Si-III": r"a-{\mathrm{Si~III}}",
+                "a_O-I": r"a-{\mathrm{O~I}}"
+            }
+            self._transitions = IonModel.Transitions.copy()
+            self._pivots = IonModel.PivotF.copy()
+
+        self.names = [f"a_{ion}" for ion in list(self._transitions.keys())]
         self._name_combos = []
-        self.param_labels = {
-            "a_Si-II": r"a-{\mathrm{Si~II}}",
-            "a_Si-III": r"a-{\mathrm{Si~III}}",
-            "a_O-I": r"a-{\mathrm{O~I}}"
-        }
 
         if vmax > 0:
             self._vmax = vmax
@@ -561,7 +584,7 @@ class LyaP1DArinyoModel(Model):
 
     def fixCosmology(self, **kwargs):
         _cosmo_params = kwargs.copy()
-        for key in self._cosmo_params:
+        for key in self._cosmo_names:
             if key in _cosmo_params:
                 continue
             _cosmo_params[key] = self.initial[key]
