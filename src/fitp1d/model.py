@@ -87,13 +87,12 @@ class IonModel(Model):
             for wave, fn in transitions:
                 self._splines['const_a2'][f"a_{ion}"] += (fn / fpivot)**2
 
-    def _setLinearATerms(self, kmin=0, kmax=1, nkpoints=int(1e6)):
+    def _setLinearATerms(self):
         self._splines['linear_a'] = {}
 
-        karr = np.linspace(kmin, kmax, nkpoints)
         for ion in self._ions:
             transitions = self._transitions[ion]
-            result = np.zeros(nkpoints)
+            result = np.zeros(self._karr.size)
             fpivot = self._pivots[ion]
 
             for wave, fn in transitions:
@@ -103,19 +102,18 @@ class IonModel(Model):
                     continue
 
                 r = fn / fpivot
-                result += 2 * r * np.cos(karr * vn)
+                result += 2 * r * np.cos(self._karr * vn)
 
                 print(f"_setLinearATerms({ion}, {wave}): {vn:.0f}")
 
-            self._splines['linear_a'][f"a_{ion}"] = CubicSpline(karr, result)
+            self._splines['linear_a'][f"a_{ion}"] = CubicSpline(self._karr, result)
 
-    def _setOneionA2Terms(self, kmin=0, kmax=1, nkpoints=int(1e6)):
+    def _setOneionA2Terms(self):
         self._splines['oneion_a2'] = {}
 
-        karr = np.linspace(kmin, kmax, nkpoints)
         for ion in self._ions:
             transitions = self._transitions[ion]
-            result = np.zeros(nkpoints)
+            result = np.zeros(self._karr.size)
             fpivot = self._pivots[ion]
 
             for p1, p2 in itertools.combinations(transitions, 2):
@@ -125,19 +123,18 @@ class IonModel(Model):
                     continue
 
                 r = (p1[1] / fpivot) * (p2[1] / fpivot)
-                result += 2 * r * np.cos(karr * vmn)
+                result += 2 * r * np.cos(self._karr * vmn)
 
                 print(f"_setOneionA2Terms({ion}, {p1[0]}, {p2[0]}): {vmn:.0f}")
 
-            self._splines['oneion_a2'][f"a_{ion}"] = CubicSpline(karr, result)
+            self._splines['oneion_a2'][f"a_{ion}"] = CubicSpline(self._karr, result)
 
-    def _setTwoionA2Terms(self, kmin=0, kmax=1, nkpoints=int(1e6)):
+    def _setTwoionA2Terms(self):
         i2a2 = {}
         self._name_combos = []
 
-        karr = np.linspace(kmin, kmax, nkpoints)
         for i1, i2 in itertools.combinations(self._ions, 2):
-            result = np.zeros(nkpoints)
+            result = np.zeros(self._karr.size)
             all_zero = True
             t1 = self._transitions[i1]
             t2 = self._transitions[i2]
@@ -151,21 +148,21 @@ class IonModel(Model):
                     continue
 
                 r = (p1[1] / fp1) * (p2[1] / fp2)
-                result += 2 * r * np.cos(karr * vmn)
+                result += 2 * r * np.cos(self._karr * vmn)
                 all_zero = False
                 print(f"_setTwoionA2Terms({i1}, {p1[0]}, {i2}, {p2[0]}): {vmn:.0f}")
 
             if all_zero:
                 continue
 
-            i2a2[f"a_{i1}-a_{i2}"] = CubicSpline(karr, result)
+            i2a2[f"a_{i1}-a_{i2}"] = CubicSpline(self._karr, result)
             self._name_combos.append((f"a_{i1}", f"a_{i2}"))
 
         self._splines['twoion_a2'] = i2a2
 
     def __init__(
             self, model_ions=["Si-II", "Si-III"], vmax=0,
-            per_transition_bias=False
+            per_transition_bias=False, doppler_boost=10.
     ):
         super().__init__()
         if per_transition_bias:
@@ -197,6 +194,8 @@ class IonModel(Model):
             self._pivots = IonModel.PivotF.copy()
 
         self.names = [f"a_{ion}" for ion in self._ions]
+        self._karr = np.linspace(0, 1, int(1e6))
+        self.bboost = doppler_boost
         self._name_combos = []
 
         if vmax > 0:
@@ -250,10 +249,27 @@ class IonModel(Model):
         self._integrated_model['oneion_a2'] = {}
         self._integrated_model['twoion_a2'] = {}
 
-        for term in ['linear_a', 'oneion_a2', 'twoion_a2']:
+        if self.bboost > 0:
+            boost = np.exp((self.kfine * self.bboost)**2 / 2)
+        else:
+            boost = 1
+
+        for ionkey, interp in self._splines['linear_a'].items():
+            self._integrated_model['linear_a'][ionkey] = (
+                interp(self.kfine) * boost
+            ).reshape(nkbins, _NSUB_K_).mean(axis=1)
+
+        boost **= 2
+        if self.bboost > 0:
+            for ionkey, value in self._splines['const_a2'].items():
+                self._integrated_model['const_a2'][ionkey] = (
+                    value * boost).reshape(nkbins, _NSUB_K_).mean(axis=1)
+
+        for term in ['oneion_a2', 'twoion_a2']:
             for ionkey, interp in self._splines[term].items():
-                v = interp(self.kfine).reshape(nkbins, _NSUB_K_).mean(axis=1)
-                self._integrated_model[term][ionkey] = v
+                self._integrated_model[term][ionkey] = (
+                    interp(self.kfine) * boost
+                ).reshape(nkbins, _NSUB_K_).mean(axis=1)
 
     def getCachedModel(self, **kwargs):
         result = np.ones_like(self.kfine)
@@ -288,19 +304,24 @@ class IonModel(Model):
     def evaluate(self, k, **kwargs):
         result = np.zeros_like(k)
 
+        if self.bboost > 0:
+            boost = np.exp((k * self.bboost)**2 / 2)
+        else:
+            boost = 1
+
         for key in self.names:
             asi = kwargs[key]
-            result += asi * self._splines['linear_a'][key](k)
+            result += asi * self._splines['linear_a'][key](k) * boost
             result += (
                 self._splines['const_a2'][key]
                 + self._splines['oneion_a2'][key](k)
-            ) * asi**2
+            ) * asi**2 * boost**2
 
         for (key1, key2) in self._name_combos:
             a1 = kwargs[key1]
             a2 = kwargs[key2]
             m = self._splines['twoion_a2'][f"{key1}-{key2}"](k)
-            result += a1 * a2 * m
+            result += a1 * a2 * m * boost**2
 
         result += 1
 
