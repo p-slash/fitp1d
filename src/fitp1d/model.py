@@ -409,6 +409,20 @@ class PolynomialModel(Model):
         return self.evaluate(self._x, **kwargs)
 
 
+class ContinuumDistortionModel(Model):
+    """https://ui.adsabs.harvard.edu/abs/2015JCAP...11..034B/abstract"""
+
+    def __init__(self):
+        super().__init__()
+        self.names = ['CD_kc', 'CD_pc']
+        self.initial = {'CD_kc': 1e-3, 'CD_pc': 3.}
+        self.boundary = {'CD_kc': (0, 1), 'CD_pc': (0, 10)}
+        self.param_labels = {'CD_kc': r"k_c^{CD}", 'CD_pc': r"p_c^{CD}"}
+
+    def evaluate(self, k, **kwargs):
+        return np.tanh((k / kwargs['CD_kv'])**kwargs['CD_pc'])
+
+
 class ScalingSystematicsModel(Model):
     def __init__(self, label):
         super().__init__()
@@ -753,6 +767,10 @@ class CombinedModel(Model):
         self._models['poly'].cache(varr)
         self._setAttr()
 
+    def addContinuumDistortionModel(self):
+        self._models['CD'] = ContinuumDistortionModel()
+        self._setAttr()
+
     # def setNoiseModel(self, p_noise):
     #     self._models['noise'].cache(p_noise)
 
@@ -798,6 +816,10 @@ class CombinedModel(Model):
         result = self._models['lya'].evaluate(self._k, **kwargs)
         result *= self._models['ion'].evaluate(self._k, **kwargs)
         result *= self._reso
+
+        if 'CD' in self._models:
+            result *= self._models['CD'].evaluate(self._k, **kwargs)
+
         xi1d = np.fft.irfft(result)[:self.ndata * _NSUB_K_] / self._dv
         xi1d = xi1d.reshape(self.ndata, _NSUB_K_).mean(axis=1)
 
