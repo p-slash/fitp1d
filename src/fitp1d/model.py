@@ -412,15 +412,32 @@ class PolynomialModel(Model):
 class ContinuumDistortionModel(Model):
     """https://ui.adsabs.harvard.edu/abs/2015JCAP...11..034B/abstract"""
 
-    def __init__(self):
+    @staticmethod
+    def _evalute_dc1(k, **kwargs):
+        return np.tanh((k / kwargs['CD_kc'])**kwargs['CD_pc'])
+
+    @staticmethod
+    def _evalute_dc2(k, **kwargs):
+        x = (1 + k / kwargs['CD_kc'])**1.5
+        y = (x - 1) / (x + 1)
+        return y**kwargs['CD_pc']
+
+    def __init__(self, cd_model='DC2'):
         super().__init__()
         self.names = ['CD_kc', 'CD_pc']
-        self.initial = {'CD_kc': 1e-3, 'CD_pc': 3.}
+        self.initial = {'CD_kc': 1e-2, 'CD_pc': 3.}
         self.boundary = {'CD_kc': (0, 1), 'CD_pc': (0, 10)}
         self.param_labels = {'CD_kc': r"k_c^{CD}", 'CD_pc': r"p_c^{CD}"}
 
+        if cd_model == "DC1":
+            self._evaluate = ContinuumDistortionModel._evalute_dc1
+        elif cd_model == "DC2":
+            self._evaluate = ContinuumDistortionModel._evalute_dc2
+        else:
+            raise Exception("Unknown model for ContinuumDistortionModel.")
+
     def evaluate(self, k, **kwargs):
-        return np.tanh((k / kwargs['CD_kc'])**kwargs['CD_pc'])
+        return self._evaluate(k, **kwargs)
 
 
 class ScalingSystematicsModel(Model):
@@ -767,8 +784,8 @@ class CombinedModel(Model):
         self._models['poly'].cache(varr)
         self._setAttr()
 
-    def addContinuumDistortionModel(self):
-        self._models['CD'] = ContinuumDistortionModel()
+    def addContinuumDistortionModel(self, cd_model="DC2"):
+        self._models['CD'] = ContinuumDistortionModel(cd_model=cd_model)
         self._setAttr()
 
     # def setNoiseModel(self, p_noise):
