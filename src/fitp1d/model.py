@@ -420,7 +420,7 @@ class ContinuumDistortionModel(Model):
         self.param_labels = {'CD_kc': r"k_c^{CD}", 'CD_pc': r"p_c^{CD}"}
 
     def evaluate(self, k, **kwargs):
-        return np.tanh((k / kwargs['CD_kv'])**kwargs['CD_pc'])
+        return np.tanh((k / kwargs['CD_kc'])**kwargs['CD_pc'])
 
 
 class ScalingSystematicsModel(Model):
