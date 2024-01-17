@@ -39,7 +39,7 @@ def getF2Kernel(k, q, w):
     return 5. / 7. + (w * r / 2) + (2. / 7. * w**2)
 
 
-def getBispectrumTree(k, q, w, plin_interp):
+def getBispectrumTree(k, q, w, plin_interp, kir_cut=1e-4):
     """
     plin_interp returns (ncosmo, *k.shape) size array
 
@@ -49,19 +49,22 @@ def getBispectrumTree(k, q, w, plin_interp):
     # assert k.shape == q.shape
     # assert w.shape == k.shape
 
-    t = np.clip(np.sqrt(k**2 + q**2 + 2 * k * q * w), 1e-5, None)
+    t = np.sqrt(k**2 + q**2 + 2 * k * q * w)
 
     plink = plin_interp(k)
     plinq = plin_interp(q)
     plint = plin_interp(t)
 
-    result = 2 * (
-        plink * plinq * getF2Kernel(k, q, w)
-        + plinq * plint * getF2Kernel(q, t, -(q + k * w) / t)
+    result = (
+        plinq * plint * getF2Kernel(q, t, -(q + k * w) / t)
         + plint * plink * getF2Kernel(t, k, -(k + q * w) / t)
     )
 
-    return result
+    # ir_mask = t < kir_cut
+    # result[:, ir_mask] = 0
+    result += plink * plinq * getF2Kernel(k, q, w)
+
+    return 2 * result
 
 
 class MyPlinInterp(CubicSpline):
@@ -112,6 +115,7 @@ class LyaxCmbModel(Model):
     def setLnkIntegration(n):
         LyaxCmbModel.LNK_INTEG_ARRAY, LyaxCmbModel.DLNK_INTEG = np.linspace(
             *LyaxCmbModel.LNK_INTEG_LIMITS, n, retstep=True)
+        LyaxCmbModel.K_INTEG_ARRAY = np.exp(LyaxCmbModel.LNK_INTEG_ARRAY)
 
     def setKappaOm0Interp(self):
         Om0s = np.linspace(0.1, 0.5, 100)
@@ -149,7 +153,7 @@ class LyaxCmbModel(Model):
             'ln10^{10}A_s': 3.044,
             'b_F': -0.136,
             'beta_F': 1.82,
-            'k_p': 15.  # in Mpc^-1
+            'k_p': 4.  # in Mpc^-1 by Misha's paper ~5 h/Mpc
         }
 
         self.boundary = {
@@ -160,7 +164,7 @@ class LyaxCmbModel(Model):
             'ln10^{10}A_s': (2., 4.),
             'b_F': (-2, 0),
             'beta_F': (0, 5),
-            'k_p': (0, 200),
+            'k_p': (0, 10),
         }
 
         # self.param_labels = {
@@ -230,7 +234,7 @@ class LyaxCmbModel(Model):
         k2 = k**2
         q = qb2 + k2
         p = pb2 + k2
-        b3d *= (1 + np.divide.outer(betaF * k2, q)) * (1 - np.divide.outer(betaF * k2, p))
+        b3d *= (1 + np.divide.outer(betaF * k2, q)) * (1 + np.divide.outer(betaF * k2, p))
         b3d *= np.exp(-(qb2 + pb2) / kp**2)
         return b3d
 
