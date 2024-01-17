@@ -121,6 +121,7 @@ class LyaxCmbModel(Model):
         self._cosmo_names = [
             'omega_b', 'omega_cdm', 'h', 'n_s', 'ln10^{10}A_s']
         self._lya_nuis = ['b_F', 'beta_F', 'k_p']
+        self._broadcasted_params = self._cosmo_names + ['b_F', 'beta_F']
 
         self.initial = {
             'omega_b': Planck18.Ob0 * Planck18.h**2,
@@ -130,7 +131,7 @@ class LyaxCmbModel(Model):
             'ln10^{10}A_s': 3.044,
             'b_F': -0.136,
             'beta_F': 1.82,
-            'k_p': 15.  # fixed
+            'k_p': 15.  # in Mpc^-1
         }
 
         self.boundary = {
@@ -147,19 +148,26 @@ class LyaxCmbModel(Model):
         # self.param_labels = {
         # }
 
-    def getPlinInterp(self, **kwargs):
+    def broadcastKwargs(self, **kwargs):
+        assert isinstance(kwargs['k_p'], float)
+
         ndim = np.max([len(kwargs[key]) for key in self._cosmo_names])
 
-        # create a dict of cosmological parameters
-        emu_params = {}
-        for key in self._cosmo_names:
-            emu_params[key] = kwargs[key]
-            if len(emu_params[key]) == 1:
-                emu_params[key] = np.ones(ndim) * emu_params[key][0]
-            elif len(emu_params[key]) != ndim:
-                raise Exception("Wrong dimensions in emu_params!")
+        for key in self._broadcasted_params:
+            if key not in kwargs:
+                kwargs[key] = np.ones(ndim) * self.initial[key]
+            elif isinstance(kwargs[key], float):
+                kwargs[key] = np.ones(ndim) * kwargs[key]
+            elif len(kwargs[key]) == 1:
+                kwargs[key] = np.ones(ndim) * kwargs[key][0]
+            elif len(kwargs[key]) != ndim:
+                raise Exception("Wrong dimensions in kwargs!")
 
-        emu_params['z'] = self.z * np.ones(ndim)
+        kwargs['z'] = self.z * np.ones(ndim)
+
+    def getPlinInterp(self, **kwargs):
+        emu_params = {key: kwargs[key] for key in self._cosmo_names}
+        emu_params['z'] = kwargs['z']
 
         # shape (ndim, nkmodes) in Mpc
         return MyPlinInterp(self._cp_log10k, self._cp_emulator.predictions_np(emu_params))
@@ -227,6 +235,7 @@ class LyaxCmbModel(Model):
         return norm * result
 
     def integrateB3dTrapz(self, k, **kwargs):
+        kwargs = self.broadcastKwargs(**kwargs)
         return np.vectorize(
             functools.partial(self._integrateB3dFncTrapz, **kwargs),
             signature='()->(m)')(k).T
@@ -251,10 +260,11 @@ class LyaxCmbModel(Model):
             is_gh=True).dot(LyaxCmbModel.W_WEIGHT_ARRAY)
         integrand = integrand.dot(weight_bot)
         result = integrand.dot(weight_bot)
-        norm = kp**2 * self.kappa_om0_interp_hMpc(Om0) / (4. * np.pi**3)
+        norm = h * kp**2 * self.kappa_om0_interp_hMpc(Om0) / (4. * np.pi**3)
         return norm * result
 
     def integrateB3dGH(self, k, **kwargs):
+        kwargs = self.broadcastKwargs(**kwargs)
         return np.vectorize(
             functools.partial(self._integrateB3dFncGH, **kwargs),
             signature='()->(m)')(k).T
