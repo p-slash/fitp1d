@@ -49,7 +49,7 @@ def getBispectrumTree(k, q, w, plin_interp):
     # assert k.shape == q.shape
     # assert w.shape == k.shape
 
-    t = np.sqrt(k**2 + q**2 + 2 * k * q * w)
+    t = np.clip(np.sqrt(k**2 + q**2 + 2 * k * q * w), 1e-5, None)
 
     plink = plin_interp(k)
     plinq = plin_interp(q)
@@ -87,8 +87,8 @@ class MyPlinInterp(CubicSpline):
 
 class LyaxCmbModel(Model):
     """docstring for LyaxCmbModel"""
-    K_INTEG_LIMITS = 1e-2, 5e2
-    LNK_INTEG_LIMITS = np.log(1e-2), np.log(5e2)
+    K_INTEG_LIMITS = 1e-3, 5e2
+    LNK_INTEG_LIMITS = np.log(1e-3), np.log(5e2)
     LNK_INTEG_ARRAY, DLNK_INTEG = np.linspace(
         *LNK_INTEG_LIMITS, 500, retstep=True)
     K_INTEG_ARRAY = np.exp(LNK_INTEG_ARRAY)
