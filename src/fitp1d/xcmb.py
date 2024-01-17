@@ -191,32 +191,37 @@ class LyaxCmbModel(Model):
     def getKms2Mpc(self, **kwargs):
         return self.getMpc2Kms(**kwargs)**-1
 
-    def _integrandB3d(self, qb, pb, w, k, plin_interp, Om0, h, kp):
+    def _integrandB3d(self, qb, pb, w, k, plin_interp, Om0, h, kp, betaF):
         """
         Om0, h, k_p are ncosmo size arrays.
         plin_interp returns (ncosmo, nk) size array.
         Returned array needs to be normalized by dividing by (2pi)^3
         units: Mpc^4
         """
-        k2 = k**2
-        qb2 = qb**2
-        pb2 = pb**2
-
         # Meshgrid
-        qb2, pb2, w = np.meshgrid(qb2, pb2, w, indexing='ij')
+        qb2, pb2, ww = np.meshgrid(qb**2, pb**2, w, indexing='ij', copy=True)
         qpb = np.outer(qb, pb)[:, :, np.newaxis]
-        tb = np.sqrt(qb2 + pb2 + 2 * qpb * w)
+        ww *= qpb
+        tb = np.sqrt(qb2 + pb2 + 2 * ww)
+        chiz = self.chiz_om0_mpch_fn(Om0) / h
+        b3d = qpb * self.wiener(np.multiply.outer(chiz, tb))
 
-        q = np.sqrt(qb2 + k2)
-        p = np.sqrt(pb2 + k2)
-        w = (qpb * w - k2) / (q * p)
+        k2 = k**2
+        q = qb2 + k2
+        p = pb2 + k2
+        bb = (1 + np.divide.outer(betaF * k2, q)) * (1 - np.divide.outer(betaF * k2, p))
+        b3d *= bb
+        np.sqrt(q, out=q)
+        np.sqrt(p, out=p)
+        ww -= k2
+        ww /= q
+        ww /= p
 
         # Absorb pressure smoothing of qb, pb into Gauss-Hermite quadrature
-        b3d = getBispectrumTree(q, p, w, plin_interp) * np.exp(-2 * k2 / kp**2)
+        b3d *= getBispectrumTree(q, p, ww, plin_interp) * np.exp(-2 * k2 / kp**2)
         b3d *= np.exp(-(qb2 + pb2) / kp**2)
 
-        chiz = self.chiz_om0_mpch_fn(Om0) / h
-        return b3d * qpb * self.wiener(np.multiply.outer(chiz, tb))
+        return b3d
 
     def _integrateB3dFncTrapz(self, k, **kwargs):
         """ Gauss-Hermite quadrature does not work
@@ -233,14 +238,15 @@ class LyaxCmbModel(Model):
 
         # shape: (ncosmo, qb.size, pb.size, x_w.size)
         integrand = self._integrandB3d(
-            qb, pb, LyaxCmbModel.W_INTEG_ARRAY, k, plin_interp, Om0, h, kp
+            qb, pb, LyaxCmbModel.W_INTEG_ARRAY, k, plin_interp, Om0, h, kp,
+            kwargs['beta_F']
         ).dot(LyaxCmbModel.W_WEIGHT_ARRAY)  # Mpc^4
 
         integrand = np.trapz(
             integrand * pb, dx=LyaxCmbModel.DLNK_INTEG, axis=-1)
         result = np.trapz(
             integrand * qb, dx=LyaxCmbModel.DLNK_INTEG, axis=-1)
-        norm = h * self.kappa_om0_interp_hMpc(Om0) / (4. * np.pi**3)  # Mpc^-1
+        norm = h * kwargs['b_F']**2 * self.kappa_om0_interp_hMpc(Om0) / (4. * np.pi**3)  # Mpc^-1
         return norm * result
 
     def integrateB3dTrapz(self, k, **kwargs):
