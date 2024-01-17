@@ -87,13 +87,22 @@ class MyPlinInterp(CubicSpline):
 
 class LyaxCmbModel(Model):
     """docstring for LyaxCmbModel"""
-    K_INTEG_LIMITS = 5e-2, 2e2
-    LNK_INTEG_LIMITS = np.log(5e-2), np.log(2e2)
+    K_INTEG_LIMITS = 1e-2, 5e2
+    LNK_INTEG_LIMITS = np.log(1e-2), np.log(5e2)
     LNK_INTEG_ARRAY, DLNK_INTEG = np.linspace(
-        *LNK_INTEG_LIMITS, 200, retstep=True)
+        *LNK_INTEG_LIMITS, 500, retstep=True)
     K_INTEG_ARRAY = np.exp(LNK_INTEG_ARRAY)
 
     W_INTEG_ARRAY, W_WEIGHT_ARRAY = np.polynomial.chebyshev.chebgauss(40)
+
+    @staticmethod
+    def setChebyshev(cls, n):
+        cls.W_INTEG_ARRAY, cls.W_WEIGHT_ARRAY = np.polynomial.chebyshev.chebgauss(n)
+
+    @staticmethod
+    def setLnkIntegration(cls, n):
+        cls.LNK_INTEG_ARRAY, cls.DLNK_INTEG = np.linspace(
+            *cls.LNK_INTEG_LIMITS, n, retstep=True)
 
     def setKappaOm0Interp(self):
         Om0s = np.linspace(0.1, 0.5, 100)
@@ -180,7 +189,7 @@ class LyaxCmbModel(Model):
     def getKms2Mpc(self, **kwargs):
         return self.getMpc2Kms(**kwargs)**-1
 
-    def _integrandB3d(self, qb, pb, w, k, plin_interp, Om0, h, kp, is_gh=False):
+    def _integrandB3d(self, qb, pb, w, k, plin_interp, Om0, h, kp):
         """
         Om0, h, k_p are ncosmo size arrays.
         plin_interp returns (ncosmo, nk) size array.
@@ -202,15 +211,13 @@ class LyaxCmbModel(Model):
 
         # Absorb pressure smoothing of qb, pb into Gauss-Hermite quadrature
         b3d = getBispectrumTree(q, p, w, plin_interp) * np.exp(-2 * k2 / kp**2)
-
-        if not is_gh:
-            b3d *= np.exp(- (qb2 + pb2) / kp**2)
+        b3d *= np.exp(-(qb2 + pb2) / kp**2)
 
         chiz = self.chiz_om0_mpch_fn(Om0) / h
         return b3d * qpb * self.wiener(np.multiply.outer(chiz, tb))
 
     def _integrateB3dFncTrapz(self, k, **kwargs):
-        """
+        """ Gauss-Hermite quadrature does not work
         k: Mpc^-1
         B1d: Mpc
         """
@@ -238,33 +245,4 @@ class LyaxCmbModel(Model):
         kwargs = self.broadcastKwargs(**kwargs)
         return np.vectorize(
             functools.partial(self._integrateB3dFncTrapz, **kwargs),
-            signature='()->(m)')(k).T
-
-    def _integrateB3dFncGH(self, k, **kwargs):
-        """
-        k: Mpc
-        """
-        h = kwargs['h']
-        kp = kwargs['k_p']
-        Om0 = (kwargs['omega_b'] + kwargs['omega_cdm']) / h**2
-        plin_interp = self.getPlinInterp(**kwargs)
-
-        x_bot, weight_bot = np.polynomial.hermite.hermgauss(2 * 30)
-        qb = x_bot[30:] * kp
-        weight_bot = weight_bot[30:]
-        pb = qb
-
-        # shape: (ncosmo, qb.size, pb.size, x_w.size)
-        integrand = self._integrandB3d(
-            qb, pb, LyaxCmbModel.W_INTEG_ARRAY, k, plin_interp, Om0, h, kp,
-            is_gh=True).dot(LyaxCmbModel.W_WEIGHT_ARRAY)
-        integrand = integrand.dot(weight_bot)
-        result = integrand.dot(weight_bot)
-        norm = h * kp**2 * self.kappa_om0_interp_hMpc(Om0) / (4. * np.pi**3)
-        return norm * result
-
-    def integrateB3dGH(self, k, **kwargs):
-        kwargs = self.broadcastKwargs(**kwargs)
-        return np.vectorize(
-            functools.partial(self._integrateB3dFncGH, **kwargs),
             signature='()->(m)')(k).T
