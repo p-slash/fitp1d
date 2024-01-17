@@ -65,18 +65,26 @@ def getBispectrumTree(k, q, w, plin_interp):
 
 
 class MyPlinInterp(CubicSpline):
-    LOG10_KMAX = np.log10(5e2)
+    LOG10_KMIN, LOG10_KMAX = np.log10(1e-7), np.log10(1e3)
 
     def __init__(self, log10k, log10p):
         # Add extrapolation data points as done in camb
-        delta = MyPlinInterp.LOG10_KMAX - log10k[-1]
+        # Low k
+        delta1 = log10k[0] - MyPlinInterp.LOG10_KMIN
+        pk1 = log10p[:, 0]
+        dlog1 = (log10p[:, 1] - pk1) / (log10k[1] - log10k[0])
 
-        pk0 = log10p[:, -1]
-        dlog = (pk0 - log10p[:, -2]) / (log10k[-1] - log10k[-2])
-        log10pk_pad = np.column_stack(
-            (log10p, pk0 + dlog * delta * 0.9, pk0 + dlog * delta))
-        log10k_pad = np.hstack(
-            (log10k, MyPlinInterp.LOG10_KMAX - delta * 0.1, MyPlinInterp.LOG10_KMAX))
+        # High k
+        delta2 = MyPlinInterp.LOG10_KMAX - log10k[-1]
+        pk2 = log10p[:, -1]
+        dlog2 = (pk2 - log10p[:, -2]) / (log10k[-1] - log10k[-2])
+
+        log10pk_pad = np.column_stack((
+            pk1 - dlog1 * delta1, pk1 - dlog1 * delta1 * 0.9,
+            log10p, pk2 + dlog2 * delta2 * 0.9, pk2 + dlog2 * delta2))
+        log10k_pad = np.hstack((
+            MyPlinInterp.LOG10_KMIN, MyPlinInterp.LOG10_KMIN + delta1 * 0.1,
+            log10k, MyPlinInterp.LOG10_KMAX - delta2 * 0.1, MyPlinInterp.LOG10_KMAX))
         self._interp = CubicSpline(
             log10k_pad, log10pk_pad, bc_type='natural', extrapolate=True,
             axis=1)
@@ -191,6 +199,41 @@ class LyaxCmbModel(Model):
     def getKms2Mpc(self, **kwargs):
         return self.getMpc2Kms(**kwargs)**-1
 
+    def _integrandB3dPhi(self, qb, pb, w, k, plin_interp, Om0, h):
+        # Meshgrid
+        qb2, pb2, ww = np.meshgrid(qb**2, pb**2, w, indexing='ij', copy=True)
+        qpb = np.outer(qb, pb)[:, :, np.newaxis]
+        ww *= qpb
+        tb = np.sqrt(qb2 + pb2 + 2 * ww)
+        chiz = self.chiz_om0_mpch_fn(Om0) / h
+        b3d = qpb * self.wiener(np.multiply.outer(chiz, tb))
+
+        k2 = k**2
+        q = np.sqrt(qb2 + k2)
+        p = np.sqrt(pb2 + k2)
+        ww -= k2
+        ww /= q
+        ww /= p
+
+        # Absorb pressure smoothing of qb, pb into Gauss-Hermite quadrature
+        b3d *= getBispectrumTree(q, p, ww, plin_interp)
+
+        return b3d
+
+    def _integrandB3dPerp(self, qb, pb, w, k, plin_interp, Om0, h, kp, betaF):
+        # shape: (ncosmo, qb.size, pb.size)
+        b3d = self._integrandB3dPhi(
+            qb, pb, LyaxCmbModel.W_INTEG_ARRAY, k, plin_interp, Om0, h
+        ).dot(LyaxCmbModel.W_WEIGHT_ARRAY)  # Mpc^4
+
+        qb2, pb2 = np.meshgrid(qb**2, pb**2, indexing='ij', copy=True)
+        k2 = k**2
+        q = qb2 + k2
+        p = pb2 + k2
+        b3d *= (1 + np.divide.outer(betaF * k2, q)) * (1 - np.divide.outer(betaF * k2, p))
+        b3d *= np.exp(-(qb2 + pb2) / kp**2)
+        return b3d
+
     def _integrandB3d(self, qb, pb, w, k, plin_interp, Om0, h, kp, betaF):
         """
         Om0, h, k_p are ncosmo size arrays.
@@ -237,17 +280,17 @@ class LyaxCmbModel(Model):
         pb = LyaxCmbModel.K_INTEG_ARRAY
 
         # shape: (ncosmo, qb.size, pb.size, x_w.size)
-        integrand = self._integrandB3d(
+        integrand = self._integrandB3dPerp(
             qb, pb, LyaxCmbModel.W_INTEG_ARRAY, k, plin_interp, Om0, h, kp,
             kwargs['beta_F']
-        ).dot(LyaxCmbModel.W_WEIGHT_ARRAY)  # Mpc^4
+        )  # Mpc^4
 
         integrand = np.trapz(
             integrand * pb, dx=LyaxCmbModel.DLNK_INTEG, axis=-1)
         result = np.trapz(
             integrand * qb, dx=LyaxCmbModel.DLNK_INTEG, axis=-1)
         norm = h * kwargs['b_F']**2 * self.kappa_om0_interp_hMpc(Om0) / (4. * np.pi**3)  # Mpc^-1
-        return norm * result
+        return norm * result * np.exp(-2 * k**2 / kp**2)
 
     def integrateB3dTrapz(self, k, **kwargs):
         kwargs = self.broadcastKwargs(**kwargs)
