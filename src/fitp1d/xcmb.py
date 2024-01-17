@@ -96,13 +96,14 @@ class LyaxCmbModel(Model):
     W_INTEG_ARRAY, W_WEIGHT_ARRAY = np.polynomial.chebyshev.chebgauss(40)
 
     @staticmethod
-    def setChebyshev(cls, n):
-        cls.W_INTEG_ARRAY, cls.W_WEIGHT_ARRAY = np.polynomial.chebyshev.chebgauss(n)
+    def setChebyshev(n):
+        LyaxCmbModel.W_INTEG_ARRAY, LyaxCmbModel.W_WEIGHT_ARRAY = \
+            np.polynomial.chebyshev.chebgauss(n)
 
     @staticmethod
-    def setLnkIntegration(cls, n):
-        cls.LNK_INTEG_ARRAY, cls.DLNK_INTEG = np.linspace(
-            *cls.LNK_INTEG_LIMITS, n, retstep=True)
+    def setLnkIntegration(n):
+        LyaxCmbModel.LNK_INTEG_ARRAY, LyaxCmbModel.DLNK_INTEG = np.linspace(
+            *LyaxCmbModel.LNK_INTEG_LIMITS, n, retstep=True)
 
     def setKappaOm0Interp(self):
         Om0s = np.linspace(0.1, 0.5, 100)
@@ -173,6 +174,7 @@ class LyaxCmbModel(Model):
                 raise Exception("Wrong dimensions in kwargs!")
 
         kwargs['z'] = self.z * np.ones(ndim)
+        return kwargs
 
     def getPlinInterp(self, **kwargs):
         emu_params = {key: kwargs[key] for key in self._cosmo_names}
