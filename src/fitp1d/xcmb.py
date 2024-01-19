@@ -35,11 +35,12 @@ def kappaKernel(Om0, z, z_source=1100):
 
 
 def getF2Kernel(k, q, w):
+    """ 2 x F_2 """
     r = q / k + k / q
-    return 5. / 7. + (w * r / 2) + (2. / 7. * w**2)
+    return 10. / 7. + w * r + (4. / 7. * w**2)
 
 
-def getBispectrumTree(k, q, w, plin_interp, kir_cut=1e-4):
+def getBispectrumTree(k, q, w, plin_interp):
     """
     plin_interp returns (ncosmo, *k.shape) size array
 
@@ -56,15 +57,12 @@ def getBispectrumTree(k, q, w, plin_interp, kir_cut=1e-4):
     plint = plin_interp(t)
 
     result = (
-        plinq * plint * getF2Kernel(q, t, -(q + k * w) / t)
+        plink * plinq * getF2Kernel(k, q, w)
+        + plinq * plint * getF2Kernel(q, t, -(q + k * w) / t)
         + plint * plink * getF2Kernel(t, k, -(k + q * w) / t)
     )
 
-    # ir_mask = t < kir_cut
-    # result[:, ir_mask] = 0
-    result += plink * plinq * getF2Kernel(k, q, w)
-
-    return 2 * result
+    return result
 
 
 class MyPlinInterp(CubicSpline):
@@ -98,13 +96,13 @@ class MyPlinInterp(CubicSpline):
 
 class LyaxCmbModel(Model):
     """docstring for LyaxCmbModel"""
-    K_INTEG_LIMITS = 1e-3, 5e2
-    LNK_INTEG_LIMITS = np.log(1e-3), np.log(5e2)
+    K_INTEG_LIMITS = [1e-4, 1e3]
+    LNK_INTEG_LIMITS = np.log(K_INTEG_LIMITS)
     LNK_INTEG_ARRAY, DLNK_INTEG = np.linspace(
-        *LNK_INTEG_LIMITS, 500, retstep=True)
+        *LNK_INTEG_LIMITS, 1000, retstep=True)
     K_INTEG_ARRAY = np.exp(LNK_INTEG_ARRAY)
 
-    W_INTEG_ARRAY, W_WEIGHT_ARRAY = np.polynomial.chebyshev.chebgauss(40)
+    W_INTEG_ARRAY, W_WEIGHT_ARRAY = np.polynomial.chebyshev.chebgauss(10)
 
     @staticmethod
     def setChebyshev(n):
@@ -203,71 +201,40 @@ class LyaxCmbModel(Model):
     def getKms2Mpc(self, **kwargs):
         return self.getMpc2Kms(**kwargs)**-1
 
-    def _integrandB3dPhi(self, qb, pb, w, k, plin_interp, Om0, h):
-        # Meshgrid
-        qb2, pb2, ww = np.meshgrid(qb**2, pb**2, w, indexing='ij', copy=True)
-        qpb = np.outer(qb, pb)[:, :, np.newaxis]
-        ww *= qpb
-        tb = np.sqrt(qb2 + pb2 + 2 * ww)
-        chiz = self.chiz_om0_mpch_fn(Om0) / h
-        b3d = qpb * self.wiener(np.multiply.outer(chiz, tb))
+    def _integrandB3dPhi(
+            self, qb, tb, qtb, w,
+            k, plin_interp, Om0, h, kp, betaF
+    ):
+        qb2, tb2, ww = np.meshgrid(qb**2, tb**2, w, indexing='ij', copy=True)
+        ww *= qtb[:, :, np.newaxis]
 
         k2 = k**2
         q = np.sqrt(qb2 + k2)
-        p = np.sqrt(pb2 + k2)
-        ww -= k2
-        ww /= q
-        ww /= p
+        p = qb2 + tb2 + 2 * ww + k2
+        b3d = (1 + np.divide.outer(betaF * k2, p)) * np.exp(-p / kp**2)
+        np.sqrt(p, out=p)
+        ww = -(qb2 + k2 + ww) / (q * p)
 
-        # Absorb pressure smoothing of qb, pb into Gauss-Hermite quadrature
         b3d *= getBispectrumTree(q, p, ww, plin_interp)
 
         return b3d
 
-    def _integrandB3dPerp(self, qb, pb, w, k, plin_interp, Om0, h, kp, betaF):
-        # shape: (ncosmo, qb.size, pb.size)
+    def _integrandB3dPerp(self, qb, tb, w, k, plin_interp, Om0, h, kp, betaF):
+        chiz = self.chiz_om0_mpch_fn(Om0) / h
+        qtb = np.outer(qb, tb)
+
+        # shape: (ncosmo, qb.size, tb.size)
         b3d = self._integrandB3dPhi(
-            qb, pb, LyaxCmbModel.W_INTEG_ARRAY, k, plin_interp, Om0, h
+            qb, tb, qtb, LyaxCmbModel.W_INTEG_ARRAY,
+            k, plin_interp, Om0, h, kp, betaF
         ).dot(LyaxCmbModel.W_WEIGHT_ARRAY)  # Mpc^4
 
-        qb2, pb2 = np.meshgrid(qb**2, pb**2, indexing='ij', copy=True)
         k2 = k**2
-        q = qb2 + k2
-        p = pb2 + k2
-        b3d *= (1 + np.divide.outer(betaF * k2, q)) * (1 + np.divide.outer(betaF * k2, p))
-        b3d *= np.exp(-(qb2 + pb2) / kp**2)
-        return b3d
-
-    def _integrandB3d(self, qb, pb, w, k, plin_interp, Om0, h, kp, betaF):
-        """
-        Om0, h, k_p are ncosmo size arrays.
-        plin_interp returns (ncosmo, nk) size array.
-        Returned array needs to be normalized by dividing by (2pi)^3
-        units: Mpc^4
-        """
-        # Meshgrid
-        qb2, pb2, ww = np.meshgrid(qb**2, pb**2, w, indexing='ij', copy=True)
-        qpb = np.outer(qb, pb)[:, :, np.newaxis]
-        ww *= qpb
-        tb = np.sqrt(qb2 + pb2 + 2 * ww)
-        chiz = self.chiz_om0_mpch_fn(Om0) / h
-        b3d = qpb * self.wiener(np.multiply.outer(chiz, tb))
-
-        k2 = k**2
-        q = qb2 + k2
-        p = pb2 + k2
-        bb = (1 + np.divide.outer(betaF * k2, q)) * (1 - np.divide.outer(betaF * k2, p))
-        b3d *= bb
-        np.sqrt(q, out=q)
-        np.sqrt(p, out=p)
-        ww -= k2
-        ww /= q
-        ww /= p
-
-        # Absorb pressure smoothing of qb, pb into Gauss-Hermite quadrature
-        b3d *= getBispectrumTree(q, p, ww, plin_interp) * np.exp(-2 * k2 / kp**2)
-        b3d *= np.exp(-(qb2 + pb2) / kp**2)
-
+        qb2, tb2 = np.meshgrid(qb**2, tb**2, indexing='ij', copy=True)
+        b3d *= qtb * self.wiener(np.multiply.outer(chiz, np.sqrt(tb2)))
+        q2 = qb2 + k2
+        b3d *= (1 + np.divide.outer(betaF * k2, q2)) * np.exp(-q2 / kp**2)
+        b3d *= np.exp(-(qb2 + tb2) / kp**2)
         return b3d
 
     def _integrateB3dFncTrapz(self, k, **kwargs):
@@ -281,20 +248,20 @@ class LyaxCmbModel(Model):
         plin_interp = self.getPlinInterp(**kwargs)
 
         qb = LyaxCmbModel.K_INTEG_ARRAY
-        pb = LyaxCmbModel.K_INTEG_ARRAY
+        tb = LyaxCmbModel.K_INTEG_ARRAY
 
         # shape: (ncosmo, qb.size, pb.size, x_w.size)
         integrand = self._integrandB3dPerp(
-            qb, pb, LyaxCmbModel.W_INTEG_ARRAY, k, plin_interp, Om0, h, kp,
+            qb, tb, LyaxCmbModel.W_INTEG_ARRAY, k, plin_interp, Om0, h, kp,
             kwargs['beta_F']
         )  # Mpc^4
 
         integrand = np.trapz(
-            integrand * pb, dx=LyaxCmbModel.DLNK_INTEG, axis=-1)
+            integrand * tb, dx=LyaxCmbModel.DLNK_INTEG, axis=-1)
         result = np.trapz(
             integrand * qb, dx=LyaxCmbModel.DLNK_INTEG, axis=-1)
         norm = h * kwargs['b_F']**2 * self.kappa_om0_interp_hMpc(Om0) / (4. * np.pi**3)  # Mpc^-1
-        return norm * result * np.exp(-2 * k**2 / kp**2)
+        return norm * result  # * np.exp(-2 * k**2 / kp**2)
 
     def integrateB3dTrapz(self, k, **kwargs):
         kwargs = self.broadcastKwargs(**kwargs)
