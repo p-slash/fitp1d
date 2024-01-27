@@ -96,13 +96,6 @@ class MyPlinInterp(CubicSpline):
 
 class LyaxCmbModel(Model):
     """docstring for LyaxCmbModel"""
-    K_INTEG_LIMITS = [1e-3, 1e2]
-    LNK_INTEG_LIMITS = np.log(K_INTEG_LIMITS)
-    LNK_INTEG_ARRAY, DLNK_INTEG = np.linspace(
-        *LNK_INTEG_LIMITS, 500, retstep=True)
-    K_INTEG_ARRAY = np.exp(LNK_INTEG_ARRAY)
-
-    W_INTEG_ARRAY, W_WEIGHT_ARRAY = np.polynomial.chebyshev.chebgauss(10)
 
     @staticmethod
     def setChebyshev(n):
@@ -120,9 +113,43 @@ class LyaxCmbModel(Model):
         kappas = np.array([kappaKernel(o, self.z) for o in Om0s])
         self.kappa_om0_interp_hMpc = CubicSpline(Om0s, kappas, bc_type='natural')
 
-    def __init__(self, z, cp_model_dir, wiener_fname):
+    def setIntegrationArrays(self, nlnkbins=None, nwbins=None, klimits=None):
+        if klimits:
+            self.klimits = klimits.copy()
+
+        if nlnkbins:
+            self.nlnkbins = nlnkbins
+
+        if klimits or nlnkbins:
+            lnk_integ_array, self.dlnk = np.linspace(
+                *np.log(self.klimits), self.nlnkbins, retstep=True)
+            self.qb_1d = np.exp(lnk_integ_array)
+            self.tb_1d = np.exp(lnk_integ_array)
+
+        if nwbins:
+            self.w_arr, self.w_weight = np.polynomial.chebyshev.chebgauss(nwbins)
+            self.nwbins = nwbins
+
+        if klimits or nlnkbins or nwbins:
+            self.qb2_2d, self.tb2_2d = np.meshgrid(
+                self.qb_1d**2, self.tb_1d**2, indexing='ij', copy=True)
+
+            self.qb2_tb2_sum_2d = self.qb2_2d + self.tb2_2d
+
+            self.qb2_3d, self.tb2_3d, self.ww_3d = np.meshgrid(
+                self.qb_1d**2, self.tb_1d**2, self.w_arr,
+                indexing='ij', copy=True)
+
+            self.qtb_2d = np.outer(self.qb_1d, self.tb_1d)
+            self.ww_3d *= self.qtb_2d[:, :, np.newaxis]
+
+    def __init__(
+            self, z, cp_model_dir, wiener_fname,
+            nlnkbins=500, nwbins=10, klimits=[1e-3, 1e2]
+    ):
         super().__init__()
         self.z = z
+        self.setIntegrationArrays(nlnkbins, nwbins, klimits)
 
         import cosmopower
         self._cp_emulator = cosmopower.cosmopower_NN(
@@ -141,7 +168,7 @@ class LyaxCmbModel(Model):
         self._cosmo_names = [
             'omega_b', 'omega_cdm', 'h', 'n_s', 'ln10^{10}A_s']
         self._lya_nuis = ['b_F', 'beta_F', 'k_p']
-        self._broadcasted_params = self._cosmo_names + ['b_F', 'beta_F']
+        self._broadcasted_params = self._cosmo_names + self._lya_nuis
 
         self.initial = {
             'omega_b': Planck18.Ob0 * Planck18.h**2,
@@ -165,13 +192,11 @@ class LyaxCmbModel(Model):
             'k_p': (0, 10),
         }
 
-        # self.param_labels = {
-        # }
-
     def broadcastKwargs(self, **kwargs):
-        assert isinstance(kwargs['k_p'], float)
-
-        ndim = np.max([len(kwargs[key]) for key in self._cosmo_names])
+        ndim = np.max([
+            len(kwargs[key]) for key in kwargs
+            if key in self._broadcasted_params
+        ])
 
         for key in self._broadcasted_params:
             if key not in kwargs:
@@ -181,7 +206,7 @@ class LyaxCmbModel(Model):
             elif len(kwargs[key]) == 1:
                 kwargs[key] = np.ones(ndim) * kwargs[key][0]
             elif len(kwargs[key]) != ndim:
-                raise Exception("Wrong dimensions in kwargs!")
+                raise Exception(f"Wrong dimensions in kwargs[{key}]!")
 
         kwargs['z'] = self.z * np.ones(ndim)
         return kwargs
@@ -202,39 +227,32 @@ class LyaxCmbModel(Model):
         return self.getMpc2Kms(**kwargs)**-1
 
     def _integrandB3dPhi(
-            self, qb, tb, qtb, w,
-            k, plin_interp, Om0, h, kp, betaF
+            self, k2, plin_interp, Om0, h, invkp2, betaF
     ):
-        qb2, tb2, ww = np.meshgrid(qb**2, tb**2, w, indexing='ij', copy=True)
-        ww *= qtb[:, :, np.newaxis]
-
-        k2 = k**2
-        q = np.sqrt(qb2 + k2)
-        p = qb2 + tb2 + 2 * ww + k2
-        b3d = (1 + np.divide.outer(betaF * k2, p)) * np.exp(-p / kp**2)
+        q = np.sqrt(self.qb2_3d + k2)
+        p = self.qb2_3d + self.tb2_3d + 2 * self.ww_3d + k2
+        b3d = (1 + np.divide.outer(betaF * k2, p)) * np.exp(np.multiply.outer(invkp2, p))
         np.sqrt(p, out=p)
-        ww = -(qb2 + k2 + ww) / (q * p)
+        ww = -(self.qb2_3d + k2 + self.ww_3d) / (q * p)
 
         b3d *= getBispectrumTree(q, p, ww, plin_interp)
 
         return b3d
 
-    def _integrandB3dPerp(self, qb, tb, w, k, plin_interp, Om0, h, kp, betaF):
+    def _integrandB3dPerp(self, k, plin_interp, Om0, h, kp, betaF):
         chiz = self.chiz_om0_mpch_fn(Om0) / h
-        qtb = np.outer(qb, tb)
+        invkp2 = -kp**-2
+        k2 = k**2
 
         # shape: (ncosmo, qb.size, tb.size)
         b3d = self._integrandB3dPhi(
-            qb, tb, qtb, LyaxCmbModel.W_INTEG_ARRAY,
-            k, plin_interp, Om0, h, kp, betaF
-        ).dot(LyaxCmbModel.W_WEIGHT_ARRAY)  # Mpc^4
+            k2, plin_interp, Om0, h, invkp2, betaF
+        ).dot(self.w_weight)  # Mpc^4
 
-        k2 = k**2
-        qb2, tb2 = np.meshgrid(qb**2, tb**2, indexing='ij', copy=True)
-        b3d *= qtb * self.wiener(np.multiply.outer(chiz, np.sqrt(tb2)))
-        q2 = qb2 + k2
-        b3d *= (1 + np.divide.outer(betaF * k2, q2)) * np.exp(-q2 / kp**2)
-        b3d *= np.exp(-(qb2 + tb2) / kp**2)
+        b3d *= self.qtb_2d * self.wiener(np.multiply.outer(chiz, np.sqrt(self.tb2_2d)))
+        q2 = self.qb2_2d + k2
+        b3d *= (1 + np.divide.outer(betaF * k2, q2)) * np.exp(np.multiply.outer(invkp2, q2))
+        b3d *= np.exp(np.multiply.outer(invkp2, self.qb2_tb2_sum_2d))
         return b3d
 
     def _integrateB3dFncTrapz(self, k, **kwargs):
@@ -247,19 +265,15 @@ class LyaxCmbModel(Model):
         Om0 = (kwargs['omega_b'] + kwargs['omega_cdm']) / h**2
         plin_interp = self.getPlinInterp(**kwargs)
 
-        qb = LyaxCmbModel.K_INTEG_ARRAY
-        tb = LyaxCmbModel.K_INTEG_ARRAY
-
         # shape: (ncosmo, qb.size, pb.size, x_w.size)
         integrand = self._integrandB3dPerp(
-            qb, tb, LyaxCmbModel.W_INTEG_ARRAY, k, plin_interp, Om0, h, kp,
-            kwargs['beta_F']
+            k, plin_interp, Om0, h, kp, kwargs['beta_F']
         )  # Mpc^4
 
         integrand = np.trapz(
-            integrand * tb, dx=LyaxCmbModel.DLNK_INTEG, axis=-1)
+            integrand * self.tb_1d, dx=self.dlnk, axis=-1)
         result = np.trapz(
-            integrand * qb, dx=LyaxCmbModel.DLNK_INTEG, axis=-1)
+            integrand * self.qb_1d, dx=self.dlnk, axis=-1)
         norm = h * kwargs['b_F']**2 * self.kappa_om0_interp_hMpc(Om0) / (4. * np.pi**3)  # Mpc^-1
         return norm * result  # * np.exp(-2 * k**2 / kp**2)
 
