@@ -96,10 +96,10 @@ class MyPlinInterp(CubicSpline):
 
 class LyaxCmbModel(Model):
     """docstring for LyaxCmbModel"""
-    K_INTEG_LIMITS = [1e-4, 1e3]
+    K_INTEG_LIMITS = [1e-3, 1e2]
     LNK_INTEG_LIMITS = np.log(K_INTEG_LIMITS)
     LNK_INTEG_ARRAY, DLNK_INTEG = np.linspace(
-        *LNK_INTEG_LIMITS, 1000, retstep=True)
+        *LNK_INTEG_LIMITS, 500, retstep=True)
     K_INTEG_ARRAY = np.exp(LNK_INTEG_ARRAY)
 
     W_INTEG_ARRAY, W_WEIGHT_ARRAY = np.polynomial.chebyshev.chebgauss(10)
