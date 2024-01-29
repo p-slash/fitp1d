@@ -4,8 +4,7 @@ import numpy as np
 from astropy.cosmology import Planck18
 from scipy.interpolate import CubicSpline, interp1d
 
-from fitp1d.model import (
-    Model, LIGHT_SPEED, LYA_WAVELENGTH, getHubbleZ)
+from fitp1d.model import Model, LIGHT_SPEED
 
 
 HUBBLE_DISTANE_Mpch = LIGHT_SPEED / 100  # Mpc / h
@@ -201,6 +200,8 @@ class LyaxCmbModel(Model):
                 kwargs[key] = np.ones(ndim) * kwargs[key][0]
             elif len(kwargs[key]) != ndim:
                 raise Exception(f"Wrong dimensions in kwargs[{key}]!")
+            else:
+                kwargs[key] = np.array(kwargs[key])
 
         kwargs['z'] = self.z * np.ones(ndim)
         return kwargs
