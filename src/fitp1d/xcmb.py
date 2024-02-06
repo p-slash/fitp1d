@@ -213,10 +213,12 @@ class LyaxCmbModel(Model):
         # shape (ndim, nkmodes) in Mpc
         return MyPlinInterp(self._cp_log10k, self._cp_emulator.predictions_np(emu_params))
 
-    def getMpc2Kms(self, **kwargs):
+    def getMpc2Kms(self, zarr=None, **kwargs):
         h = kwargs['h']
         Om0 = (kwargs['omega_b'] + kwargs['omega_cdm']) / h**2
-        return 100. * h * efunc(self.z, Om0) / (1 + self.z)
+        if zarr is None:
+            zarr = self.z
+        return 100. * h * efunc(zarr, Om0) / (1 + zarr)
 
     def getKms2Mpc(self, **kwargs):
         return self.getMpc2Kms(**kwargs)**-1
