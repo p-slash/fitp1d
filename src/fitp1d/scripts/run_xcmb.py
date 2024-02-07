@@ -21,8 +21,9 @@ base_cosmo = {
     'h': np.array([Planck18.h]),
     'n_s': np.array([Planck18.meta['n']]),
     'ln10^{10}A_s': np.array([3.044]),
-    'b_F': [-0.081], 'beta_F': [1.67],
-    'k_p': [11.2]  # Mpc^-1
+    'z': np.array([zeff]),
+    'b_F': np.array([-0.081]), 'beta_F': np.array([1.67]),
+    'k_p': np.array([11.2])  # Mpc^-1
 }
 
 prior_cosmo = {
@@ -56,8 +57,6 @@ def log_prob(args):
     new_cosmo = base_cosmo.copy()
     for i, x in enumerate(args):
         new_cosmo[free_params[i]] = np.array([x])
-
-    new_cosmo = model.broadcastKwargs(**new_cosmo)
 
     for key, (b1, b2) in boundary.items():
         v = new_cosmo[key][0]
