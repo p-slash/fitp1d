@@ -244,7 +244,12 @@ class LyaxCmbModel(Model):
 
         return b3d
 
-    def _integrandB3dPerp(self, k, plin_interp, Om0, h, invkp2, beta_F):
+    def _integrateB3dFncTrapzUnnorm(self, k, plin_interp, Om0, h, invkp2, b_F, beta_F):
+        """ Gauss-Hermite quadrature does not work
+        k: Mpc^-1
+        B1d: Mpc
+        """
+
         k2 = k**2
 
         # shape: (ncosmo, qb.size, tb.size)
@@ -255,22 +260,11 @@ class LyaxCmbModel(Model):
         b3d *= self._wiener_chiz
         q2 = self.qb2_2d + k2
         b3d *= (1 + np.divide.outer(beta_F * k2, q2)) * self._qb2_2d_exp
-        # b3d *= np.exp(np.multiply.outer(invkp2, self.qb2_tb2_sum_2d))
-        return b3d
+        b3d *= self.tb_1d
 
-    def _integrateB3dFncTrapzUnnorm(self, k, plin_interp, Om0, h, invkp2, b_F, beta_F):
-        """ Gauss-Hermite quadrature does not work
-        k: Mpc^-1
-        B1d: Mpc
-        """
-        # shape: (ncosmo, qb.size, pb.size, x_w.size)
-        integrand = self._integrandB3dPerp(
-            k, plin_interp, Om0, h, invkp2, beta_F
-        )  # Mpc^4
-
-        integrand = np.trapz(integrand * self.tb_1d, dx=self.dlnk, axis=-1)
-        result = np.trapz(integrand * self.qb_1d, dx=self.dlnk, axis=-1)
-        return result
+        b3d = np.trapz(b3d, dx=self.dlnk, axis=-1)
+        b3d *= self.qb_1d
+        return np.trapz(b3d, dx=self.dlnk, axis=-1)
 
     def integrateB3dTrapz(self, k, **kwargs):
         kwargs = self.broadcastKwargs(**kwargs)
@@ -295,4 +289,4 @@ class LyaxCmbModel(Model):
         return norm * np.fromiter((
             self._integrateB3dFncTrapzUnnorm(
                 _, plin_interp, Om0, h, invkp2, b_F, kwargs['beta_F']
-            ) for _ in k), dtype=np.dtype((float, h.size)))
+            ) for _ in k), dtype=np.dtype((float, h.size))).T
