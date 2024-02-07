@@ -138,9 +138,8 @@ class LyaxCmbModel(Model):
             self.qtb_2d = np.outer(self.qb_1d, self.tb_1d)
             self.ww_3d *= self.qtb_2d[:, :, np.newaxis]
             self.pb2_3d += self.qb2_3d + 2 * self.ww_3d
-            self._wiener_chiz = None
-            self._qb2_2d_exp = None
             self._pb2_3d_exp = None
+            self._wchi_exp_mult = None
 
     def __init__(
             self, z, cp_model_dir, wiener_fname,
@@ -257,17 +256,15 @@ class LyaxCmbModel(Model):
             k2, plin_interp, Om0, h, invkp2, beta_F
         ).dot(self.w_weight)  # Mpc^4
 
-        b3d *= self._wiener_chiz
-        q2 = self.qb2_2d + k2
-        b3d *= (1 + np.divide.outer(beta_F * k2, q2)) * self._qb2_2d_exp
-        b3d *= self.tb_1d
+        b3d *= self._wchi_exp_mult
+        b3d *= (1 + np.divide.outer(beta_F * k2, self.qb2_2d + k2))
 
         b3d = np.trapz(b3d, dx=self.dlnk, axis=-1)
         b3d *= self.qb_1d
         return np.trapz(b3d, dx=self.dlnk, axis=-1)
 
     def integrateB3dTrapz(self, k, **kwargs):
-        kwargs = self.broadcastKwargs(**kwargs)
+        # kwargs = self.broadcastKwargs(**kwargs)
         h = kwargs['h']
         kp = kwargs['k_p']
         b_F = kwargs['b_F']
@@ -278,9 +275,10 @@ class LyaxCmbModel(Model):
         invkp2 = -kp**-2
         k2 = k**2
 
-        self._wiener_chiz = self.qtb_2d * self.wiener(np.multiply.outer(chiz, self.tb_2d))
-        self._qb2_2d_exp = np.exp(np.multiply.outer(invkp2, self.qb2_2d))
+        _wiener_chiz = self.qtb_2d * self.wiener(np.multiply.outer(chiz, self.tb_2d))
+        _qb2_2d_exp = np.exp(np.multiply.outer(invkp2, self.qb2_2d))
         self._pb2_3d_exp = np.exp(np.multiply.outer(invkp2, self.pb2_3d))
+        self._wchi_exp_mult = _wiener_chiz * _qb2_2d_exp * self.tb_1d
 
         # Mpc^-1
         norm = h * b_F**2 * self.kappa_om0_interp_hMpc(Om0) / (4. * np.pi**3)
