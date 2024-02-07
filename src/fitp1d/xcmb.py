@@ -128,16 +128,19 @@ class LyaxCmbModel(Model):
             self.qb2_2d, self.tb_2d = np.meshgrid(
                 self.qb_1d**2, self.tb_1d**2, indexing='ij', copy=True)
 
-            self.qb2_tb2_sum_2d = self.qb2_2d + self.tb_2d
+            # self.qb2_tb2_sum_2d = self.qb2_2d + self.tb_2d
             np.sqrt(self.tb_2d, out=self.tb_2d)
 
-            self.qb2_3d, self.qb2_tb2_sum_3d, self.ww_3d = np.meshgrid(
+            self.qb2_3d, self.pb2_3d, self.ww_3d = np.meshgrid(
                 self.qb_1d**2, self.tb_1d**2, self.w_arr,
                 indexing='ij', copy=True)
 
             self.qtb_2d = np.outer(self.qb_1d, self.tb_1d)
             self.ww_3d *= self.qtb_2d[:, :, np.newaxis]
-            self.qb2_tb2_sum_3d += self.qb2_3d + 2 * self.ww_3d
+            self.pb2_3d += self.qb2_3d + 2 * self.ww_3d
+            self._wiener_chiz = None
+            self._qb2_2d_exp = None
+            self._pb2_3d_exp = None
 
     def __init__(
             self, z, cp_model_dir, wiener_fname,
@@ -224,56 +227,72 @@ class LyaxCmbModel(Model):
         return self.getMpc2Kms(**kwargs)**-1
 
     def _integrandB3dPhi(
-            self, k2, plin_interp, Om0, h, invkp2, betaF
+            self, k2, plin_interp, Om0, h, invkp2, beta_F
     ):
-        q = np.sqrt(self.qb2_3d + k2)
-        p = self.qb2_tb2_sum_3d + k2
-        b3d = (1 + np.divide.outer(betaF * k2, p)) * np.exp(np.multiply.outer(invkp2, p))
+        q = self.qb2_3d + k2
+        ww = q + self.ww_3d
+        p = self.pb2_3d + k2
+
+        b3d = (1 + np.divide.outer(beta_F * k2, p)) * self._pb2_3d_exp
+        np.sqrt(q, out=q)
         np.sqrt(p, out=p)
-        ww = -(self.qb2_3d + k2 + self.ww_3d) / (q * p)
+        ww /= q
+        ww /= p
+        ww *= -1
 
         b3d *= getBispectrumTree(q, p, ww, plin_interp)
 
         return b3d
 
-    def _integrandB3dPerp(self, k, plin_interp, Om0, h, kp, betaF):
-        chiz = self.chiz_om0_mpch_fn(Om0) / h
-        invkp2 = -kp**-2
+    def _integrandB3dPerp(self, k, plin_interp, Om0, h, invkp2, beta_F):
         k2 = k**2
 
         # shape: (ncosmo, qb.size, tb.size)
         b3d = self._integrandB3dPhi(
-            k2, plin_interp, Om0, h, invkp2, betaF
+            k2, plin_interp, Om0, h, invkp2, beta_F
         ).dot(self.w_weight)  # Mpc^4
 
-        b3d *= self.qtb_2d * self.wiener(np.multiply.outer(chiz, self.tb_2d))
+        b3d *= self._wiener_chiz
         q2 = self.qb2_2d + k2
-        b3d *= (1 + np.divide.outer(betaF * k2, q2)) * np.exp(np.multiply.outer(invkp2, q2))
-        b3d *= np.exp(np.multiply.outer(invkp2, self.qb2_tb2_sum_2d))
+        b3d *= (1 + np.divide.outer(beta_F * k2, q2)) * self._qb2_2d_exp
+        # b3d *= np.exp(np.multiply.outer(invkp2, self.qb2_tb2_sum_2d))
         return b3d
 
-    def _integrateB3dFncTrapz(self, k, **kwargs):
+    def _integrateB3dFncTrapzUnnorm(self, k, plin_interp, Om0, h, invkp2, b_F, beta_F):
         """ Gauss-Hermite quadrature does not work
         k: Mpc^-1
         B1d: Mpc
         """
-        h = kwargs['h']
-        kp = kwargs['k_p']
-        Om0 = (kwargs['omega_b'] + kwargs['omega_cdm']) / h**2
-        plin_interp = self.getPlinInterp(**kwargs)
-
         # shape: (ncosmo, qb.size, pb.size, x_w.size)
         integrand = self._integrandB3dPerp(
-            k, plin_interp, Om0, h, kp, kwargs['beta_F']
+            k, plin_interp, Om0, h, invkp2, beta_F
         )  # Mpc^4
 
         integrand = np.trapz(integrand * self.tb_1d, dx=self.dlnk, axis=-1)
         result = np.trapz(integrand * self.qb_1d, dx=self.dlnk, axis=-1)
-        norm = h * kwargs['b_F']**2 * self.kappa_om0_interp_hMpc(Om0) / (4. * np.pi**3)  # Mpc^-1
-        return norm * result
+        return result
 
     def integrateB3dTrapz(self, k, **kwargs):
         kwargs = self.broadcastKwargs(**kwargs)
-        return np.vectorize(
-            functools.partial(self._integrateB3dFncTrapz, **kwargs),
-            signature='()->(m)')(k).T
+        h = kwargs['h']
+        kp = kwargs['k_p']
+        b_F = kwargs['b_F']
+        Om0 = (kwargs['omega_b'] + kwargs['omega_cdm']) / h**2
+        chiz = self.chiz_om0_mpch_fn(Om0) / h
+        plin_interp = self.getPlinInterp(**kwargs)
+
+        invkp2 = -kp**-2
+        k2 = k**2
+
+        self._wiener_chiz = self.qtb_2d * self.wiener(np.multiply.outer(chiz, self.tb_2d))
+        self._qb2_2d_exp = np.exp(np.multiply.outer(invkp2, self.qb2_2d))
+        self._pb2_3d_exp = np.exp(np.multiply.outer(invkp2, self.pb2_3d))
+
+        # Mpc^-1
+        norm = h * b_F**2 * self.kappa_om0_interp_hMpc(Om0) / (4. * np.pi**3)
+        norm = norm[:, np.newaxis] * np.exp(np.multiply.outer(2 * invkp2, k2))
+
+        return norm * np.fromiter((
+            self._integrateB3dFncTrapzUnnorm(
+                _, plin_interp, Om0, h, invkp2, b_F, kwargs['beta_F']
+            ) for _ in k), dtype=np.dtype((float, h.size)))
