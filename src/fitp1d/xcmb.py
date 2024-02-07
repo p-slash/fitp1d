@@ -143,7 +143,7 @@ class LyaxCmbModel(Model):
 
     def __init__(
             self, z, cp_model_dir, wiener_fname,
-            nlnkbins=500, nwbins=10, klimits=[1e-3, 1e2]
+            nlnkbins=100, nwbins=10, klimits=[1e-3, 20.]
     ):
         super().__init__()
         self.setRedshift(z)
