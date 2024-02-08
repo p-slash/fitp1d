@@ -143,7 +143,8 @@ class LyaxCmbModel(Model):
 
     def __init__(
             self, z, cp_model_dir, wiener_fname,
-            nlnkbins=100, nwbins=10, klimits=[1e-3, 20.]
+            nlnkbins=100, nwbins=10, klimits=[1e-3, 20.],
+            emu="PKLIN_NN"
     ):
         super().__init__()
         self.setRedshift(z)
@@ -162,6 +163,7 @@ class LyaxCmbModel(Model):
 
         self._cosmo_names = [
             'omega_b', 'omega_cdm', 'h', 'n_s', 'ln10^{10}A_s']
+
         self._lya_nuis = ['b_F', 'beta_F', 'k_p']
         self._broadcasted_params = self._cosmo_names + self._lya_nuis
 
@@ -186,6 +188,17 @@ class LyaxCmbModel(Model):
             'beta_F': (0, 5),
             'k_p': (0, 10),
         }
+
+        self.param_labels = {
+            'omega_b': '\Omega_b h^2', 'omega_cdm': '\Omega_c h^2',
+            'h': 'h', 'n_s': 'n_s', 'ln10^{10}A_s': 'ln(10^{10} A_s)',
+            'b_F': 'b_F', 'beta_F': '\beta_F', 'k_p': 'k_p'
+        }
+
+        if "mnu" in emu:
+            self._cosmo_names.append("m_nu")
+            self.initial['m_nu'] = 0.06
+            self.param_labels['m_nu'] = 'm_{\nu}'
 
     def broadcastKwargs(self, **kwargs):
         ndim = np.max([
@@ -287,4 +300,4 @@ class LyaxCmbModel(Model):
         return norm * np.fromiter((
             self._integrateB3dFncTrapzUnnorm(
                 _, plin_interp, Om0, h, invkp2, b_F, kwargs['beta_F']
-            ) for _ in k), dtype=np.dtype((float, h.size))).T
+            ) for _ in k), dtype=np.dtype((float, (h.size, )))).T
