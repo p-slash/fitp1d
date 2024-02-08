@@ -10,10 +10,12 @@ myb1ddatadir = "/global/cfs/cdirs/desicollab/users/naimgk/CMBxPLya/v3x/forecast"
 mycosmopowerdir = "/global/cfs/cdirs/desicollab/users/naimgk/CMBxPLya/v3x/forecast"
 mywienerfilter = "/global/homes/n/naimgk/Repos/plyacmb/src/plyacmb/data/mv_wiener_filter_planck18.txt"
 zeff = 2.4
-nwalkers = 32
-nproc = 32
-nsteps = 6400
+nwalkers = 64
+nproc = 64
+nsteps = 10000
 usePool = True
+useKms = True
+scale_cov = 5
 
 base_cosmo = {
     'omega_b': np.array([Planck18.Ob0 * Planck18.h**2]),
@@ -28,10 +30,12 @@ base_cosmo = {
 
 prior_cosmo = {
     'omega_b': 0.00014,
-    'omega_cdm': 0.00091,
+    # 'omega_cdm': 0.00091,
     'h': 0.0042,
     'n_s': 0.0038,
-    'ln10^{10}A_s': 0.014
+    'ln10^{10}A_s': 0.014,
+    'k_p': 100.,
+    'beta_F': 0.01
 }
 
 boundary = {
@@ -45,15 +49,15 @@ model = LyaxCmbModel(
 )
 
 k, base_b1d = np.loadtxt(f"{myb1ddatadir}/base_b1d_24_mpc.txt", unpack=True)
-invcov = np.loadtxt(f"{myb1ddatadir}/base_invcov_24_mpc.txt")
+invcov = scale_cov * np.loadtxt(f"{myb1ddatadir}/base_invcov_24_mpc.txt")
 
 free_params = [
     'omega_b', 'omega_cdm', 'h', 'n_s', 'ln10^{10}A_s',
-    'b_F', 'k_p'
+    'b_F', 'beta_F', 'k_p'
 ]
 
 
-def log_prob(args):
+def _log_prob_mpc(args):
     new_cosmo = base_cosmo.copy()
     for i, x in enumerate(args):
         new_cosmo[free_params[i]] = np.array([x])
@@ -68,6 +72,25 @@ def log_prob(args):
         prior += ((new_cosmo[key][0] - base_cosmo[key][0]) / s)**2
 
     y = model.integrateB3dTrapz(k, **new_cosmo)[0] - base_b1d
+    return -0.5 * (y.dot(invcov.dot(y)) + prior)
+
+
+def _log_prob_kms(args):
+    new_cosmo = base_cosmo.copy()
+    for i, x in enumerate(args):
+        new_cosmo[free_params[i]] = np.array([x])
+
+    for key, (b1, b2) in boundary.items():
+        v = new_cosmo[key][0]
+        if (v < b1) or (v > b2):
+            return -np.inf
+
+    prior = 0
+    for key, s in prior_cosmo.items():
+        prior += ((new_cosmo[key][0] - base_cosmo[key][0]) / s)**2
+
+    c = model.getMpc2Kms(**new_cosmo)
+    y = model.integrateB3dTrapz(k * c, **new_cosmo)[0] * c - base_b1d
     return -0.5 * (y.dot(invcov.dot(y)) + prior)
 
 
@@ -93,6 +116,16 @@ def log_prob_vectorized(args):
     return result
 
 
+if useKms:
+    mpc2kms = model.getMpc2Kms(**base_cosmo)
+    k /= mpc2kms
+    base_b1d *= mpc2kms
+    invcov /= mpc2kms**2
+    log_prob = _log_prob_mpc
+else:
+    log_prob = _log_prob_kms
+
+
 def main():
     ndim = len(free_params)
     rshift = 1e-4 * np.random.default_rng().normal(size=(nwalkers, ndim))
@@ -110,17 +143,13 @@ def main():
         )
         sampler.run_mcmc(p0, nsteps, progress=True)
 
-    np.savetxt("chains.txt", sampler.get_chain(flat=True))
+    np.savetxt(f"chains_x{scale_cov}.txt", sampler.get_chain(), header=' '.join(free_params))
+    tau = sampler.get_autocorr_time()
+    np.savetxt(f"autocorr_x{scale_cov}.txt", tau)
     print(
-        "Mean acceptance fraction: {0:.3f}".format(
-            np.mean(sampler.acceptance_fraction)
-        )
+        f"Mean acceptance fraction: {np.mean(sampler.acceptance_fraction):.3f}"
     )
-    print(
-        "Mean autocorrelation time: {0:.3f} steps".format(
-            np.mean(sampler.get_autocorr_time())
-        )
-    )
+    print(f"Mean autocorrelation time: {np.mean(tau):.1f} steps")
 
 
 if __name__ == '__main__':
