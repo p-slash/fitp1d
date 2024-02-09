@@ -179,20 +179,20 @@ class LyaxCmbModel(Model):
         }
 
         self.boundary = {
-            'omega_b': (0.0, 0.05),
-            'omega_cdm': (0.0, 0.3),
-            'h': (0.5, 0.9),
-            'n_s': (0.94, 1.),
-            'ln10^{10}A_s': (2., 4.),
+            'omega_b': (0.01875, 0.02625),
+            'omega_cdm': (0.05, 0.255),
+            'n_s': (0.84, 1.1),
+            'h': (0.64, 0.82),
+            'ln10^{10}A_s': (1.61, 3.91),
             'b_F': (-2, 0),
-            'beta_F': (0, 5),
-            'k_p': (0, 10),
+            'beta_F': (1, 3),
+            'k_p': (0, 1e3),
         }
 
         self.param_labels = {
-            'omega_b': '\Omega_b h^2', 'omega_cdm': '\Omega_c h^2',
+            'omega_b': '\\Omega_b h^2', 'omega_cdm': '\\Omega_c h^2',
             'h': 'h', 'n_s': 'n_s', 'ln10^{10}A_s': 'ln(10^{10} A_s)',
-            'b_F': 'b_F', 'beta_F': '\beta_F', 'k_p': 'k_p'
+            'b_F': 'b_F', 'beta_F': '\\beta_F', 'k_p': 'k_p'
         }
 
         if "mnu" in emu:

@@ -30,23 +30,22 @@ base_cosmo = {
 
 prior_cosmo = {
     'omega_b': 0.00014,
-    # 'omega_cdm': 0.00091,
     'h': 0.0042,
-    'n_s': 0.0038,
     'ln10^{10}A_s': 0.014,
-    'k_p': 100.,
-    'beta_F': 0.01
-}
-
-boundary = {
-    'b_F': (-0.2, 0),
-    # 'k_p': (0, 100.)
+    'k_p': 50.,
+    'beta_F': 0.01,
+    # 'omega_cdm': 0.00091,
+    # 'n_s': 0.0038,
+    'omega_cdm': 0.02,
+    'n_s': 0.05
 }
 
 model = LyaxCmbModel(
     zeff, mycosmopowerdir, mywienerfilter,
     nlnkbins=100, nwbins=10
 )
+
+boundary = model.boundary.copy()
 
 k, base_b1d = np.loadtxt(f"{myb1ddatadir}/base_b1d_24_mpc.txt", unpack=True)
 invcov = scale_cov * np.loadtxt(f"{myb1ddatadir}/base_invcov_24_mpc.txt")
@@ -121,9 +120,9 @@ if useKms:
     k /= mpc2kms
     base_b1d *= mpc2kms
     invcov /= mpc2kms**2
-    log_prob = _log_prob_mpc
-else:
     log_prob = _log_prob_kms
+else:
+    log_prob = _log_prob_mpc
 
 
 def main():
