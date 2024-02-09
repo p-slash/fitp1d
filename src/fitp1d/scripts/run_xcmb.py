@@ -28,17 +28,21 @@ base_cosmo = {
     'k_p': np.array([11.2])  # Mpc^-1
 }
 
-prior_cosmo = {
+planck_prior = {
     'omega_b': 0.00014,
+    'omega_cdm': 0.00091,
     'h': 0.0042,
+    'n_s': 0.0038,
     'ln10^{10}A_s': 0.014,
     'k_p': 50.,
-    'beta_F': 0.01,
-    # 'omega_cdm': 0.00091,
-    # 'n_s': 0.0038,
+    'beta_F': 0.01
+}
+
+prior_cosmo = planck_prior.copy()
+prior_cosmo.update({
     'omega_cdm': 0.02,
     'n_s': 0.05
-}
+})
 
 model = LyaxCmbModel(
     zeff, mycosmopowerdir, mywienerfilter,
