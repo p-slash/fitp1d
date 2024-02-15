@@ -301,3 +301,27 @@ class LyaxCmbModel(Model):
             self._integrateB3dFncTrapzUnnorm(
                 _, plin_interp, Om0, h, invkp2, b_F, kwargs['beta_F']
             ) for _ in k), dtype=np.dtype((float, (h.size, )))).T
+
+    def getP1dTrapz(self, k, **kwargs):
+        kp = kwargs['k_p']
+        b_F = kwargs['b_F']
+        beta_F = kwargs['beta_F']
+        plin_interp = self.getPlinInterp(**kwargs)
+
+        invkp2 = -2 * kp**-2
+        k2 = k**2
+
+        lnk_integ_array, dlnk = np.linspace(
+            *np.log(self.klimits), 400, retstep=True)
+        k2_2d, qb2_2d = np.meshgrid(k2, self.qb_1d**2, indexing='ij', copy=True)
+        q_2d = k2_2d + qb2_2d
+        ww2 = k2_2d / q_2d
+        np.sqrt(q_2d, out=q_2d)
+
+        p3d = (1 + np.multiply.outer(beta_F, ww2))**2 * plin_interp(q_2d)
+        p3d *= np.exp(np.multiply.outer(invkp2, qb2_2d))
+        p1d = np.trapz(p3d * qb2_2d, dx=self.dlnk, axis=-1)
+
+        norm = b_F**2 / (2 * np.pi)
+        norm = norm[:, np.newaxis] * np.exp(np.multiply.outer(invkp2, k2))
+        return norm * p1d
