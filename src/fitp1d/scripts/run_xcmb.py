@@ -4,7 +4,7 @@ import numpy as np
 from astropy.cosmology import Planck18
 from fitp1d.xcmb import LyaxCmbModel
 
-import emcee
+import zeus
 
 myb1ddatadir = "/global/cfs/cdirs/desicollab/users/naimgk/CMBxPLya/v3x/forecast"
 mycosmopowerdir = "/global/cfs/cdirs/desicollab/users/naimgk/CMBxPLya/v3x/forecast"
@@ -136,12 +136,12 @@ def main():
 
     if usePool:
         with mp.Pool(processes=nproc) as pool:
-            sampler = emcee.EnsembleSampler(
+            sampler = zeus.EnsembleSampler(
                 nwalkers, ndim, log_prob, vectorize=False, pool=pool
             )
             sampler.run_mcmc(p0, nsteps, progress=True)
     else:
-        sampler = emcee.EnsembleSampler(
+        sampler = zeus.EnsembleSampler(
             nwalkers, ndim, log_prob_vectorized, vectorize=True
         )
         sampler.run_mcmc(p0, nsteps, progress=True)
