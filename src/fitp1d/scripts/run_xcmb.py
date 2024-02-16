@@ -10,9 +10,9 @@ myb1ddatadir = "/global/cfs/cdirs/desicollab/users/naimgk/CMBxPLya/v3x/forecast"
 mycosmopowerdir = "/global/cfs/cdirs/desicollab/users/naimgk/CMBxPLya/v3x/forecast"
 mywienerfilter = "/global/homes/n/naimgk/Repos/plyacmb/src/plyacmb/data/mv_wiener_filter_planck18.txt"
 zeff = 2.4
-nwalkers = 64
-nproc = 64
-nsteps = 10000
+nwalkers = 128
+nproc = 128
+nsteps = 4000
 scale_cov = 5
 progbar = True
 
@@ -124,7 +124,7 @@ def main():
 
         np.savetxt(
             f"chains_p1d_x{scale_cov}.txt",
-            sampler.get_chain(), header=' '.join(free_params))
+            sampler.get_chain(flat=True), header=' '.join(free_params))
         tau = sampler.get_autocorr_time()
         np.savetxt(f"autocorr_p1d_x{scale_cov}.txt", tau)
         print(
@@ -140,7 +140,7 @@ def main():
 
         np.savetxt(
             f"chains_joint_x{scale_cov}.txt",
-            sampler.get_chain(), header=' '.join(free_params))
+            sampler.get_chain(flat=True), header=' '.join(free_params))
         tau = sampler.get_autocorr_time()
         np.savetxt(f"autocorr_joint_x{scale_cov}.txt", tau)
         print(
