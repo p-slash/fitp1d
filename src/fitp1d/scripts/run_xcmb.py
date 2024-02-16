@@ -125,12 +125,7 @@ def main():
         np.savetxt(
             f"chains_p1d_x{scale_cov}.txt",
             sampler.get_chain(flat=True), header=' '.join(free_params))
-        tau = sampler.get_autocorr_time()
-        np.savetxt(f"autocorr_p1d_x{scale_cov}.txt", tau)
-        print(
-            f"Mean acceptance fraction: {np.mean(sampler.acceptance_fraction):.3f}"
-        )
-        print(f"Mean autocorrelation time: {np.mean(tau):.1f} steps")
+        sampler.summary
 
         print("Joint likelihood.")
         sampler = zeus.EnsembleSampler(
@@ -141,12 +136,7 @@ def main():
         np.savetxt(
             f"chains_joint_x{scale_cov}.txt",
             sampler.get_chain(flat=True), header=' '.join(free_params))
-        tau = sampler.get_autocorr_time()
-        np.savetxt(f"autocorr_joint_x{scale_cov}.txt", tau)
-        print(
-            f"Mean acceptance fraction: {np.mean(sampler.acceptance_fraction):.3f}"
-        )
-        print(f"Mean autocorrelation time: {np.mean(tau):.1f} steps")
+        sampler.summary
 
 
 if __name__ == '__main__':
