@@ -324,7 +324,7 @@ class LyaxCmbModel(Model):
         invkp2 = -2 * kp**-2
         k2 = k**2
 
-        k2_2d, qb2_2d = np.meshgrid(k2, self.self.qb2_1d_p1d, indexing='ij', copy=True)
+        k2_2d, qb2_2d = np.meshgrid(k2, self.qb2_1d_p1d, indexing='ij', copy=True)
         q_2d = k2_2d + qb2_2d
         ww2 = k2_2d / q_2d
         np.sqrt(q_2d, out=q_2d)
