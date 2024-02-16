@@ -3,6 +3,7 @@ import functools
 import numpy as np
 from astropy.cosmology import Planck18
 from scipy.interpolate import CubicSpline, interp1d
+from scipy.special import spherical_jn
 
 from fitp1d.model import Model, LIGHT_SPEED
 
@@ -66,6 +67,10 @@ def getBispectrumTree(k, q, w, plin_interp):
 
 class MyPlinInterp(CubicSpline):
     LOG10_KMIN, LOG10_KMAX = np.log10(1e-7), np.log10(1e3)
+    S8_k = np.logspace(-4, 1, 500)
+    S8_log10k = np.log10(S8_k)
+    S8_dlnk = np.log(S8_k[-1] / S8_k[0]) / S8_k.size
+    W8_2 = (3 * spherical_jn(1, S8_k * 8.) / (S8_k * 8.))**2 * S8_k**3
 
     def __init__(self, log10k, log10p):
         # Add extrapolation data points as done in camb
@@ -91,6 +96,10 @@ class MyPlinInterp(CubicSpline):
 
     def __call__(self, k):
         return 10**(self._interp(np.log10(k)))
+
+    def sigma8(self):
+        P = 10**self._interp(MyPlinInterp.S8_log10k)
+        return np.trapz(P * MyPlinInterp.W8_2, dx=MyPlinInterp.S8_dlnk)
 
 
 class LyaxCmbModel(Model):
