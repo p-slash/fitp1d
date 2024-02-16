@@ -4,7 +4,7 @@ import numpy as np
 from astropy.cosmology import Planck18
 from fitp1d.xcmb import LyaxCmbModel
 
-import zeus
+import emcee
 
 myb1ddatadir = "/global/cfs/cdirs/desicollab/users/naimgk/CMBxPLya/v3x/forecast"
 mycosmopowerdir = "/global/cfs/cdirs/desicollab/users/naimgk/CMBxPLya/v3x/forecast"
@@ -117,7 +117,7 @@ def main():
     p0 = np.array([base_cosmo[_] for _ in free_params]).T + rshift
 
     with mp.Pool(processes=nproc) as pool:
-        sampler = zeus.EnsembleSampler(
+        sampler = emcee.EnsembleSampler(
             nwalkers, ndim, log_prob_kms_p1d, pool=pool
         )
         sampler.run_mcmc(p0, nsteps, progress=progbar)
@@ -125,10 +125,9 @@ def main():
         np.savetxt(
             f"chains_p1d_x{scale_cov}.txt",
             sampler.get_chain(flat=True), header=' '.join(free_params))
-        sampler.summary
 
         print("Joint likelihood.")
-        sampler = zeus.EnsembleSampler(
+        sampler = emcee.EnsembleSampler(
             nwalkers, ndim, log_prob_kms_joint, pool=pool
         )
         sampler.run_mcmc(p0, nsteps, progress=progbar)
@@ -136,7 +135,6 @@ def main():
         np.savetxt(
             f"chains_joint_x{scale_cov}.txt",
             sampler.get_chain(flat=True), header=' '.join(free_params))
-        sampler.summary
 
 
 if __name__ == '__main__':

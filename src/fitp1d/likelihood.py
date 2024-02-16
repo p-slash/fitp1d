@@ -1,5 +1,5 @@
 import numpy as np
-import zeus
+import emcee
 import iminuit
 from getdist import MCSamples
 
@@ -76,7 +76,7 @@ class P1DLikelihood():
 
     def sample(self, label, nwalkers=32, nsamples=20000):
         ndim = len(self.free_params)
-        sampler = zeus.EnsembleSampler(nwalkers, ndim, self.likelihood)
+        sampler = emcee.EnsembleSampler(nwalkers, ndim, self.likelihood)
 
         rshift = 1e-4 * np.random.default_rng().normal(size=(nwalkers, ndim))
         p0 = self._mini.values[self.free_params] + rshift
