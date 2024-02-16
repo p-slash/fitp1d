@@ -1,7 +1,7 @@
 from astropy.cosmology import Planck18
 import camb
 import numpy as np
-import zeus
+import emcee
 import iminuit
 from getdist import MCSamples
 from scipy.interpolate import CubicSpline
@@ -467,7 +467,7 @@ class P1DLikelihood2():
             check_autocorr=False, pool=None
     ):
         ndim = len(self.free_params)
-        sampler = zeus.EnsembleSampler(
+        sampler = emcee.EnsembleSampler(
             nwalkers, ndim, self.likelihood, pool=pool)
 
         rshift = 1e-4 * np.random.default_rng().normal(size=(nwalkers, ndim))
