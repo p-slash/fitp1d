@@ -14,6 +14,7 @@ nwalkers = 64
 nproc = 64
 nsteps = 10000
 scale_cov = 5
+progbar = True
 
 base_cosmo = {
     'omega_b': np.array([Planck18.Ob0 * Planck18.h**2]),
@@ -119,7 +120,7 @@ def main():
         sampler = zeus.EnsembleSampler(
             nwalkers, ndim, log_prob_kms_p1d, pool=pool
         )
-        sampler.run_mcmc(p0, nsteps, progress=True)
+        sampler.run_mcmc(p0, nsteps, progress=progbar)
 
         np.savetxt(
             f"chains_p1d_x{scale_cov}.txt",
@@ -135,7 +136,7 @@ def main():
         sampler = zeus.EnsembleSampler(
             nwalkers, ndim, log_prob_kms_joint, pool=pool
         )
-        sampler.run_mcmc(p0, nsteps, progress=True)
+        sampler.run_mcmc(p0, nsteps, progress=progbar)
 
         np.savetxt(
             f"chains_joint_x{scale_cov}.txt",
