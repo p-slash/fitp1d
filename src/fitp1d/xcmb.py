@@ -131,7 +131,7 @@ class LyaxCmbModel(Model):
 
             self.qb2_1d_p1d, self.dlnk_p1d = np.linspace(
                 *np.log(self.klimits), 400, retstep=True)
-            self.qb2_1d_p1d = np.exp(2 * self.qb_1d_p1d)
+            self.qb2_1d_p1d = np.exp(2 * self.qb2_1d_p1d)
 
         if nwbins:
             self.w_arr, self.w_weight = np.polynomial.chebyshev.chebgauss(nwbins)
