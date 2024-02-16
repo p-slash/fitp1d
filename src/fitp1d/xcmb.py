@@ -129,6 +129,10 @@ class LyaxCmbModel(Model):
             self.qb_1d = np.exp(lnk_integ_array)
             self.tb_1d = np.exp(lnk_integ_array)
 
+            self.qb2_1d_p1d, self.dlnk_p1d = np.linspace(
+                *np.log(self.klimits), 400, retstep=True)
+            self.qb2_1d_p1d = np.exp(2 * self.qb_1d_p1d)
+
         if nwbins:
             self.w_arr, self.w_weight = np.polynomial.chebyshev.chebgauss(nwbins)
             self.nwbins = nwbins
@@ -320,16 +324,14 @@ class LyaxCmbModel(Model):
         invkp2 = -2 * kp**-2
         k2 = k**2
 
-        lnk_integ_array, dlnk = np.linspace(
-            *np.log(self.klimits), 400, retstep=True)
-        k2_2d, qb2_2d = np.meshgrid(k2, self.qb_1d**2, indexing='ij', copy=True)
+        k2_2d, qb2_2d = np.meshgrid(k2, self.self.qb2_1d_p1d, indexing='ij', copy=True)
         q_2d = k2_2d + qb2_2d
         ww2 = k2_2d / q_2d
         np.sqrt(q_2d, out=q_2d)
 
         p3d = (1 + np.multiply.outer(beta_F, ww2))**2 * plin_interp(q_2d)
         p3d *= np.exp(np.multiply.outer(invkp2, qb2_2d))
-        p1d = np.trapz(p3d * qb2_2d, dx=self.dlnk, axis=-1)
+        p1d = np.trapz(p3d * qb2_2d, dx=self.dlnk_p1d, axis=-1)
 
         norm = b_F**2 / (2 * np.pi)
         norm = norm[:, np.newaxis] * np.exp(np.multiply.outer(invkp2, k2))
