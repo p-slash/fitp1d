@@ -13,7 +13,8 @@ zeff = 2.4
 nwalkers = 128
 nproc = 128
 nsteps = 4000
-scale_cov = 5
+scale_invcov_b1d = 5
+scale_invcov_p1d = 1
 progbar = True
 
 base_cosmo = {
@@ -51,10 +52,10 @@ model = LyaxCmbModel(
 boundary = model.boundary.copy()
 
 k, base_b1d = np.loadtxt(f"{myb1ddatadir}/forecast_base_b1d_24_mpc.txt", unpack=True)
-b1d_invcov = scale_cov * np.loadtxt(f"{myb1ddatadir}/forecast_base_b1d_invcov_24_mpc.txt")
+b1d_invcov = scale_invcov_b1d * np.loadtxt(f"{myb1ddatadir}/forecast_base_b1d_invcov_24_mpc.txt")
 
 _, base_p1d = np.loadtxt(f"{myb1ddatadir}/forecast_base_p1d_24_mpc.txt", unpack=True)
-p1d_invcov = np.loadtxt(f"{myb1ddatadir}/forecast_base_p1d_invcov_24_mpc.txt") / scale_cov
+p1d_invcov = scale_invcov_p1d * np.loadtxt(f"{myb1ddatadir}/forecast_base_p1d_invcov_24_mpc.txt")
 
 mpc2kms = model.getMpc2Kms(**base_cosmo)
 k /= mpc2kms
@@ -123,7 +124,7 @@ def main():
         sampler.run_mcmc(p0, nsteps, progress=progbar)
 
         np.savetxt(
-            f"chains_p1d_x{scale_cov}.txt",
+            f"chains_p1d_x{scale_invcov_p1d}.txt",
             sampler.get_chain(flat=True), header=' '.join(free_params))
 
         print("Joint likelihood.")
@@ -133,7 +134,7 @@ def main():
         sampler.run_mcmc(p0, nsteps, progress=progbar)
 
         np.savetxt(
-            f"chains_joint_x{scale_cov}.txt",
+            f"chains_joint_px{scale_invcov_p1d}_bx{scale_invcov_b1d}.txt",
             sampler.get_chain(flat=True), header=' '.join(free_params))
 
 
