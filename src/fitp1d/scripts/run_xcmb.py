@@ -51,19 +51,27 @@ model = LyaxCmbModel(
 
 boundary = model.boundary.copy()
 
-k, base_b1d = np.loadtxt(f"{myb1ddatadir}/forecast_base_b1d_24_mpc.txt", unpack=True)
-b1d_invcov = scale_invcov_b1d * np.loadtxt(f"{myb1ddatadir}/forecast_base_b1d_invcov_24_mpc.txt")
 
-_, base_p1d = np.loadtxt(f"{myb1ddatadir}/forecast_base_p1d_24_mpc.txt", unpack=True)
-p1d_invcov = scale_invcov_p1d * np.loadtxt(f"{myb1ddatadir}/forecast_base_p1d_invcov_24_mpc.txt")
+def read_data(myb1ddatadir=myb1ddatadir):
+    k, base_b1d = np.loadtxt(f"{myb1ddatadir}/forecast_base_b1d_24_mpc.txt", unpack=True)
+    b1d_invcov = scale_invcov_b1d * np.loadtxt(
+        f"{myb1ddatadir}/forecast_base_b1d_invcov_24_mpc.txt")
 
-mpc2kms = model.getMpc2Kms(**base_cosmo)
-k /= mpc2kms
-base_b1d *= mpc2kms
-base_p1d *= mpc2kms
-b1d_invcov /= mpc2kms**2
-p1d_invcov /= mpc2kms**2
+    _, base_p1d = np.loadtxt(f"{myb1ddatadir}/forecast_base_p1d_24_mpc.txt", unpack=True)
+    p1d_invcov = scale_invcov_p1d * np.loadtxt(
+        f"{myb1ddatadir}/forecast_base_p1d_invcov_24_mpc.txt")
 
+    mpc2kms = model.getMpc2Kms(**base_cosmo)
+    k /= mpc2kms
+    base_b1d *= mpc2kms
+    base_p1d *= mpc2kms
+    b1d_invcov /= mpc2kms**2
+    p1d_invcov /= mpc2kms**2
+
+    return k, base_b1d, b1d_invcov, base_p1d, p1d_invcov
+
+
+k, base_b1d, b1d_invcov, base_p1d, p1d_invcov = read_data(myb1ddatadir)
 free_params = [
     'omega_b', 'omega_cdm', 'h', 'n_s', 'ln10^{10}A_s',
     'b_F', 'beta_F', 'k_p'
