@@ -204,7 +204,8 @@ class LyaP1DArinyoModel2(Model):
             H0=H0,
             ns=kwargs['ns'],
             As=np.exp(kwargs['ln10As']) * 1e-10,
-            mnu=kwargs['mnu'] / 100.
+            mnu=kwargs['mnu'] / 100.,
+            kmax=10.
         )
         camb_results = camb.get_results(camb_params)
 
