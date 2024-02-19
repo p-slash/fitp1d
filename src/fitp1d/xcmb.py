@@ -5,6 +5,8 @@ from astropy.cosmology import Planck18
 from scipy.interpolate import CubicSpline, interp1d
 from scipy.special import spherical_jn
 
+import cosmopower
+
 from fitp1d.model import Model, LIGHT_SPEED
 
 
@@ -17,6 +19,12 @@ def efunc(z, Om0, Or0=Planck18.Ogamma0):
 
 def invEfunc(z, Om0, Or0=Planck18.Ogamma0):
     return np.sqrt(1 - Om0 - Or0 + Om0 * (1 + z)**3 + Or0 * (1 + z)**4)**-1
+
+
+def getMpc2Kms(self, zarr, **kwargs):
+    h = kwargs['h']
+    Om0 = (kwargs['omega_b'] + kwargs['omega_cdm']) / h**2
+    return 100. * h * efunc(zarr, Om0) / (1 + zarr)
 
 
 def comovingDistanceMpch(Om0, z, npoints=1000):
@@ -166,7 +174,6 @@ class LyaxCmbModel(Model):
         self.setRedshift(z)
         self.setIntegrationArrays(nlnkbins, nwbins, klimits)
 
-        import cosmopower
         self._cp_emulator = cosmopower.cosmopower_NN(
             restore=True,
             restore_filename=f'{cp_model_dir}/PKLIN_NN')
