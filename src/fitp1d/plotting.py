@@ -1,7 +1,66 @@
+import copy
+
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.patches import Ellipse
+import matplotlib.transforms as transforms
 
 from getdist import plots as getdist_plots
+
+
+def plotEllipseMinimizer(
+        mini, key1, key2, param_labels, color,
+        ax=None, label=None, box=False, **kwargs
+):
+    if ax is None:
+        ax = plt.gca()
+
+    std_x = np.sqrt(mini.covariance[(key1, key1)])
+    mean_x = mini.values[key1]
+    std_y = np.sqrt(mini.covariance[(key2, key2)])
+    mean_y = np.mean(mini.values[key2])
+
+    pearson = mini.covariance[(key1, key2)] / (std_x * std_y)
+
+    ell_radius_x = np.sqrt(1 + pearson)
+    ell_radius_y = np.sqrt(1 - pearson)
+    ellipse = Ellipse(
+        (0, 0), width=ell_radius_x * 2, height=ell_radius_y * 2,
+        fc=color, ec=color, lw=2, **kwargs
+    )
+
+    ax.plot(mean_x, mean_y, 'kx')
+    if box:
+        textstr = '\n'.join((
+            rf'${param_labels[key1]}=$' + f"{mean_x:.3f}",
+            rf'${param_labels[key2]}=$' + f"{mean_y:.3f}",
+            r"$r=$" + f"{pearson:.2f}"
+        ))
+        ax.text(
+            0.05, 0.95, textstr,
+            transform=ax.transAxes, fontsize=16,
+            verticalalignment='top',
+            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+        )
+
+    alpha = kwargs['alpha'] if 'alpha' in kwargs else 0.4
+    for n, ls in zip([1, 2], ['-', '--']):
+        scale_x = n * std_x
+        scale_y = n * std_y
+        transf = transforms.Affine2D().rotate_deg(45).scale(
+            scale_x, scale_y).translate(mean_x, mean_y)
+        ell = copy.deepcopy(ellipse)
+
+        ell.set_transform(transf + ax.transData)
+        ell.set_linestyle(ls)
+        if 'fill' not in kwargs or kwargs['fill']:
+            ell.set_alpha(alpha / n)
+
+        if n == 1:
+            ell.set_label(label)
+        ax.add_patch(ell)
+
+    return ax
 
 
 def plotCornerSamples(
