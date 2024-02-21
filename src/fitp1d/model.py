@@ -6,7 +6,9 @@ import numpy as np
 from scipy.interpolate import CubicSpline
 
 LYA_WAVELENGTH = 1215.67
-LIGHT_SPEED = 299792.458
+LIGHT_SPEED = 299792.458  # km / s
+BOLTZMANN_K = 8.617333262e-5  # eV / K
+M_PROTON = 0.938272088e9  # eV
 
 _NSUB_K_ = 5
 
