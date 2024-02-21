@@ -7,7 +7,7 @@ from scipy.special import spherical_jn
 
 import cosmopower
 
-from fitp1d.model import Model, LIGHT_SPEED
+from fitp1d.model import Model, LIGHT_SPEED, BOLTZMANN_K, M_PROTON
 
 
 HUBBLE_DISTANE_Mpch = LIGHT_SPEED / 100  # Mpc / h
@@ -21,7 +21,7 @@ def invEfunc(z, Om0, Or0=Planck18.Ogamma0):
     return np.sqrt(1 - Om0 - Or0 + Om0 * (1 + z)**3 + Or0 * (1 + z)**4)**-1
 
 
-def getMpc2Kms(self, zarr, **kwargs):
+def getMpc2Kms(zarr, **kwargs):
     h = kwargs['h']
     Om0 = (kwargs['omega_b'] + kwargs['omega_cdm']) / h**2
     return 100. * h * efunc(zarr, Om0) / (1 + zarr)
@@ -102,6 +102,10 @@ class MyPlinInterp(CubicSpline):
         self._interp = CubicSpline(
             log10k_pad, log10pk_pad, bc_type='natural', extrapolate=True,
             axis=1)
+        self._delta2_interp = CubicSpline(
+            log10k_pad, log10pk_pad + 3 * log10k_pad - np.log10(2 * np.pi**2),
+            bc_type='natural', extrapolate=True,
+            axis=1)
 
     def __call__(self, k):
         return 10**(self._interp(np.log10(k)))
@@ -111,6 +115,9 @@ class MyPlinInterp(CubicSpline):
         return MyPlinInterp.S8_norm * np.sqrt(
             np.trapz(P * MyPlinInterp.W8_2, dx=MyPlinInterp.S8_dlnk, axis=-1)
         )
+
+    def getDelta2(self, k):
+        return 10**(self._delta2_interp(np.log10(k)))
 
 
 class LyaxCmbModel(Model):
@@ -141,7 +148,7 @@ class LyaxCmbModel(Model):
             self.tb_1d = np.exp(lnk_integ_array)
 
             self.qb2_1d_p1d, self.dlnk_p1d = np.linspace(
-                *np.log(self.klimits), 400, retstep=True)
+                *np.log([1e-3, 1e2]), 500, retstep=True)
             self.qb2_1d_p1d = np.exp(2 * self.qb2_1d_p1d)
 
         if nwbins:
@@ -187,19 +194,22 @@ class LyaxCmbModel(Model):
         self._cosmo_names = [
             'omega_b', 'omega_cdm', 'h', 'n_s', 'ln10^{10}A_s']
 
-        self._lya_nuis = ['b_F', 'beta_F', 'k_p']
+        self._lya_nuis = ['b_F', 'beta_F', 'k_p', 'q_1', 'log10T', 'nu_th']
         self._broadcasted_params = self._cosmo_names + self._lya_nuis
 
         self.initial = {
-            'omega_b': Planck18.Ob0 * Planck18.h**2,
-            'omega_cdm': Planck18.Odm0 * Planck18.h**2,
-            'h': Planck18.h,
-            'n_s': Planck18.meta['n'],
-            'ln10^{10}A_s': 3.044,
-            'b_F': -0.136,
-            'beta_F': 1.82,
-            'k_p': 4.  # in Mpc^-1 by Misha's paper ~5 h/Mpc
+            'omega_b': np.array([Planck18.Ob0 * Planck18.h**2]),
+            'omega_cdm': np.array([Planck18.Odm0 * Planck18.h**2]),
+            'h': np.array([Planck18.h]),
+            'n_s': np.array([Planck18.meta['n']]),
+            'ln10^{10}A_s': np.array([3.044]),
+            'b_F': np.array([-0.15]), 'beta_F': np.array([1.67]),
+            'k_p': np.array([8.7]),  # Mpc^-1
+            'q_1': np.array([0.65]), 'log10T': np.array([4.]),
+            'nu_th': np.array([1.5])
         }
+        self._sigma_th_pivot_kms = LIGHT_SPEED * np.sqrt(
+            BOLTZMANN_K * 10000. / M_PROTON)
 
         self.boundary = {
             'omega_b': (0.01875, 0.02625),
@@ -207,15 +217,15 @@ class LyaxCmbModel(Model):
             'n_s': (0.84, 1.1),
             'h': (0.64, 0.82),
             'ln10^{10}A_s': (1.61, 3.91),
-            'b_F': (-2, 0),
-            'beta_F': (1, 3),
-            'k_p': (0, 1e3),
+            'b_F': (-2, 0), 'beta_F': (1, 3), 'k_p': (0, 1e3),
+            'q_1': (0, 4), 'log10T': (-2, 10), 'nu_th': (0, 10)
         }
 
         self.param_labels = {
             'omega_b': '\\Omega_b h^2', 'omega_cdm': '\\Omega_c h^2',
             'h': 'h', 'n_s': 'n_s', 'ln10^{10}A_s': 'ln(10^{10} A_s)',
-            'b_F': 'b_F', 'beta_F': '\\beta_F', 'k_p': 'k_p'
+            'b_F': 'b_F', 'beta_F': '\\beta_F', 'k_p': 'k_p',
+            'q_1': 'q_1', 'log10T': '\\log_{10}T', 'nu_th': '\\nu_{th}'
         }
 
         if "mnu" in emu:
@@ -304,6 +314,11 @@ class LyaxCmbModel(Model):
         h = kwargs['h']
         kp = kwargs['k_p']
         b_F = kwargs['b_F']
+        nu = kwargs['nu_th'][:, np.newaxis]
+        sigma_th = (
+            self.getKms2Mpc(**kwargs) * self._sigma_th_pivot_kms
+            * 10**(kwargs['log10T'] / 2 - 2)
+        )
         Om0 = (kwargs['omega_b'] + kwargs['omega_cdm']) / h**2
         chiz = self.chiz_om0_mpch_fn(Om0) / h
         plin_interp = self.getPlinInterp(**kwargs)
@@ -318,7 +333,10 @@ class LyaxCmbModel(Model):
 
         # Mpc^-1
         norm = h * b_F**2 * self.kappa_om0_interp_hMpc(Om0) / (4. * np.pi**3)
-        norm = norm[:, np.newaxis] * np.exp(np.multiply.outer(2 * invkp2, k2))
+        norm = norm[:, np.newaxis] * np.exp(
+            np.multiply.outer(2 * invkp2, k2)
+            - np.power(np.multiply.outer(sigma_th, k), nu)
+        )
 
         return norm * np.fromiter((
             self._integrateB3dFncTrapzUnnorm(
@@ -329,6 +347,12 @@ class LyaxCmbModel(Model):
         kp = kwargs['k_p']
         b_F = kwargs['b_F']
         beta_F = kwargs['beta_F']
+        q_1 = kwargs['q_1'][:, np.newaxis, np.newaxis]
+        nu = kwargs['nu_th'][:, np.newaxis, np.newaxis] / 2
+        sigma2_th = (
+            self.getKms2Mpc(**kwargs) * self._sigma_th_pivot_kms
+            * 10**(kwargs['log10T'] / 2 - 2)
+        )**2
         plin_interp = self.getPlinInterp(**kwargs)
 
         invkp2 = -2 * kp**-2
@@ -340,7 +364,12 @@ class LyaxCmbModel(Model):
         np.sqrt(q_2d, out=q_2d)
 
         p3d = (1 + np.multiply.outer(beta_F, ww2))**2 * plin_interp(q_2d)
-        p3d *= np.exp(np.multiply.outer(invkp2, qb2_2d))
+        p3d *= np.exp(
+            np.multiply.outer(invkp2, qb2_2d)
+            + q_1 * plin_interp.getDelta2(q_2d) * (
+                1 - np.power(np.multiply.outer(sigma2_th, k2_2d), nu)
+            )
+        )
         p1d = np.trapz(p3d * qb2_2d, dx=self.dlnk_p1d, axis=-1)
 
         norm = b_F**2 / (2 * np.pi)
