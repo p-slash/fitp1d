@@ -60,6 +60,8 @@ def plotEllipseMinimizer(
             ell.set_label(label)
         ax.add_patch(ell)
 
+    ax.set_xlabel(rf"${param_labels[key1]}$")
+    ax.set_ylabel(rf"${param_labels[key2]}$")
     return ax
 
 
