@@ -7,9 +7,9 @@ from fitp1d.xcmb import getMpc2Kms
 
 import emcee
 
-myb1ddatadir = "/global/cfs/cdirs/desicollab/users/naimgk/CMBxPLya/v3x/forecast"
-mycosmopowerdir = "/global/cfs/cdirs/desicollab/users/naimgk/CMBxPLya/v3x/forecast"
-mywienerfilter = "/global/homes/n/naimgk/Repos/plyacmb/src/plyacmb/data/mv_wiener_filter_planck18.txt"
+myb1ddatadir = "/dvs_ro/cfs/cdirs/desicollab/users/naimgk/CMBxPLya/v3x/forecast"
+mycosmopowerdir = "/dvs_ro/u1/n/naimgk/Repos/cosmopower"
+mywienerfilter = "/dvs_ro/u1/n/naimgk/Repos/plyacmb/src/plyacmb/data/mv_wiener_filter_planck18.txt"
 zeff = 2.4
 nwalkers = 128
 nproc = 128
