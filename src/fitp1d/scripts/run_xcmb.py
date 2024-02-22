@@ -1,4 +1,5 @@
 import argparse
+import datetime
 import multiprocessing as mp
 
 import numpy as np
@@ -166,11 +167,16 @@ def setGlobals(args):
 
 
 def main():
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     args = getParser().parse_args()
     setGlobals(args)
     ndim = len(free_params)
     rshift = 1e-4 * np.random.default_rng().normal(size=(nwalkers, ndim))
     p0 = np.array([base_cosmo[_] for _ in free_params]).T + rshift
+
+    with open(f"run_params_{timestamp}.txt", 'w') as f:
+        print("base_cosmo: ", base_cosmo, file=f)
+        print("prior: ", prior_cosmo, file=f)
 
     with mp.Pool(processes=nproc) as pool:
         sampler = emcee.EnsembleSampler(
@@ -179,7 +185,7 @@ def main():
         sampler.run_mcmc(p0, nsteps, progress=progbar)
 
         np.savetxt(
-            f"chains_p1d_x{scale_invcov_p1d}.txt",
+            f"chains_{timestamp}_p1d_x{scale_invcov_p1d}.txt",
             sampler.get_chain(flat=True), header=' '.join(free_params))
 
         print("Joint likelihood.")
@@ -189,5 +195,5 @@ def main():
         sampler.run_mcmc(p0, nsteps, progress=progbar)
 
         np.savetxt(
-            f"chains_joint_px{scale_invcov_p1d}_bx{scale_invcov_b1d}.txt",
+            f"chains_{timestamp}_joint_px{scale_invcov_p1d}_bx{scale_invcov_b1d}.txt",
             sampler.get_chain(flat=True), header=' '.join(free_params))
