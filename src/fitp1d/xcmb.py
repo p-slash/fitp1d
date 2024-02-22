@@ -10,7 +10,7 @@ import cosmopower
 from fitp1d.model import Model, LIGHT_SPEED, BOLTZMANN_K, M_PROTON
 
 
-HUBBLE_DISTANE_Mpch = LIGHT_SPEED / 100  # Mpc / h
+HUBBLE_DISTANCE_Mpch = LIGHT_SPEED / 100  # Mpc / h
 
 
 def efunc(z, Om0, Or0=Planck18.Ogamma0):
@@ -30,7 +30,7 @@ def getMpc2Kms(zarr, **kwargs):
 def comovingDistanceMpch(Om0, z, dz=0.01):
     npoints = min(1000, int(z / dz))
     zinteg, dz = np.linspace(0, z, npoints, retstep=True)
-    return HUBBLE_DISTANE_Mpch * np.trapz(invEfunc(zinteg, Om0), dx=dz)
+    return HUBBLE_DISTANCE_Mpch * np.trapz(invEfunc(zinteg, Om0), dx=dz)
 
 
 def kappaKernel(Om0, z, z_source=1100):
@@ -38,7 +38,7 @@ def kappaKernel(Om0, z, z_source=1100):
     """
     chi = comovingDistanceMpch(Om0, z)
     chi_S = comovingDistanceMpch(Om0, z_source)
-    A = 1.5 * Om0 / HUBBLE_DISTANE_Mpch**2
+    A = 1.5 * Om0 / HUBBLE_DISTANCE_Mpch**2
 
     return A * (1 + z) * chi * (1. - chi / chi_S)
 
@@ -125,7 +125,7 @@ class LyaxCmbModel(Model):
     """docstring for LyaxCmbModel"""
 
     def setKappaOm0Interp(self):
-        Om0s = np.linspace(0.1, 0.7, 100)
+        Om0s = np.linspace(0.1, 0.7, 300)
         kappas = np.array([kappaKernel(o, self.z) for o in Om0s])
         self.kappa_om0_interp_hMpc = CubicSpline(Om0s, kappas, bc_type='natural')
 
@@ -332,7 +332,7 @@ class LyaxCmbModel(Model):
         self._pb2_3d_exp = np.exp(np.multiply.outer(invkp2, self.pb2_3d))
 
         # Mpc^-1
-        norm = h * b_F**2 * self.kappa_om0_interp_hMpc(Om0) / (4. * np.pi**3)
+        norm = b_F**2 * h * self.kappa_om0_interp_hMpc(Om0) / (4. * np.pi**3)
         norm = norm[:, np.newaxis] * np.exp(
             np.multiply.outer(2 * invkp2, k2)
             - np.power(np.multiply.outer(sigma_th, k), nu)
