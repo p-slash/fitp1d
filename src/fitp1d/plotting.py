@@ -10,7 +10,7 @@ from getdist import plots as getdist_plots
 
 def plotEllipseMinimizer(
         mini, key1, key2, param_labels, color,
-        ax=None, label=None, box=False, **kwargs
+        ax=None, label=None, box=False, truth={}, **kwargs
 ):
     if ax is None:
         ax = plt.gca()
@@ -29,7 +29,14 @@ def plotEllipseMinimizer(
         fc=color, ec=color, lw=2, **kwargs
     )
 
-    ax.plot(mean_x, mean_y, 'kx')
+    ax.plot(mean_x, mean_y, 'k+')
+    if key1 in truth:
+        ax.axvline(truth[key1], ls=':', c='r')
+    if key2 in truth:
+        ax.axhline(truth[key2], ls=':', c='r')
+    if key1 in truth and key2 in truth:
+        ax.plot(truth[key1], truth[key2], 'rx')
+
     if box:
         textstr = '\n'.join((
             rf'${param_labels[key1]}=$' + f"{mean_x:.3f}",
