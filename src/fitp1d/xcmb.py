@@ -27,7 +27,8 @@ def getMpc2Kms(zarr, **kwargs):
     return 100. * h * efunc(zarr, Om0) / (1 + zarr)
 
 
-def comovingDistanceMpch(Om0, z, npoints=1000):
+def comovingDistanceMpch(Om0, z, dz=0.01):
+    npoints = min(1000, int(z / dz))
     zinteg, dz = np.linspace(0, z, npoints, retstep=True)
     return HUBBLE_DISTANE_Mpch * np.trapz(invEfunc(zinteg, Om0), dx=dz)
 
@@ -124,7 +125,7 @@ class LyaxCmbModel(Model):
     """docstring for LyaxCmbModel"""
 
     def setKappaOm0Interp(self):
-        Om0s = np.linspace(0.1, 0.5, 100)
+        Om0s = np.linspace(0.1, 0.7, 100)
         kappas = np.array([kappaKernel(o, self.z) for o in Om0s])
         self.kappa_om0_interp_hMpc = CubicSpline(Om0s, kappas, bc_type='natural')
 
@@ -195,7 +196,7 @@ class LyaxCmbModel(Model):
             'omega_b', 'omega_cdm', 'h', 'n_s', 'ln10^{10}A_s']
 
         self._lya_nuis = [
-            'b_F', 'beta_F', 'k_p', 'q_1', 'log10T', 'nu0_th', 'nu1_th']
+            'b_F', 'beta_F', 'k_p', 'q_1', 'q_2', 'log10T', 'nu0_th', 'nu1_th']
         self._broadcasted_params = self._cosmo_names + self._lya_nuis
 
         self.initial = {
@@ -206,7 +207,8 @@ class LyaxCmbModel(Model):
             'ln10^{10}A_s': np.array([3.044]),
             'b_F': np.array([-0.15]), 'beta_F': np.array([1.67]),
             'k_p': np.array([8.7]),  # Mpc^-1
-            'q_1': np.array([0.65]), 'log10T': np.array([4.]),
+            'q_1': np.array([0.25]), 'q_2': np.array([0.25]),
+            'log10T': np.array([4.]),
             'nu0_th': np.array([1.5]), 'nu1_th': np.array([1])
         }
         self._sigma_th_pivot_kms = LIGHT_SPEED * np.sqrt(
@@ -219,7 +221,7 @@ class LyaxCmbModel(Model):
             'h': (0.64, 0.82),
             'ln10^{10}A_s': (1.61, 3.91),
             'b_F': (-2, 0), 'beta_F': (1, 3), 'k_p': (0, 1e3),
-            'q_1': (0, 4), 'log10T': (-2, 10),
+            'q_1': (0, 4), 'q_2': (0, 4), 'log10T': (-2, 10),
             'nu0_th': (0, 10), 'nu1_th': (0, 10)
         }
 
@@ -227,7 +229,7 @@ class LyaxCmbModel(Model):
             'omega_b': '\\Omega_b h^2', 'omega_cdm': '\\Omega_c h^2',
             'h': 'h', 'n_s': 'n_s', 'ln10^{10}A_s': 'ln(10^{10} A_s)',
             'b_F': 'b_F', 'beta_F': '\\beta_F', 'k_p': 'k_p',
-            'q_1': 'q_1', 'log10T': '\\log_{10}T',
+            'q_1': 'q_1', 'q_2': 'q_2', 'log10T': '\\log_{10}T',
             'nu0_th': '\\nu_{0, th}', 'nu1_th': '\\nu_{1, th}'
         }
 
@@ -274,9 +276,7 @@ class LyaxCmbModel(Model):
     def getKms2Mpc(self, **kwargs):
         return self.getMpc2Kms(**kwargs)**-1
 
-    def _integrandB3dPhi(
-            self, k2, plin_interp, Om0, h, invkp2, beta_F
-    ):
+    def _integrandB3dPhi(self, k2, plin_interp, beta_F):
         q = self.qb2_3d + k2
         ww = q + self.ww_3d
         p = self.pb2_3d + k2
@@ -292,21 +292,17 @@ class LyaxCmbModel(Model):
 
         return b3d
 
-    def _integrateB3dFncTrapzUnnorm(self, k, plin_interp, Om0, h, invkp2, b_F, beta_F):
+    def _integrateB3dFncTrapzUnnorm(self, k2, plin_interp, beta_F):
         """ Gauss-Hermite quadrature does not work
         k: Mpc^-1
         B1d: Mpc
         """
-
-        k2 = k**2
-
-        # shape: (ncosmo, qb.size, tb.size)
-        b3d = self._integrandB3dPhi(
-            k2, plin_interp, Om0, h, invkp2, beta_F
-        ).dot(self.w_weight)  # Mpc^4
-
-        b3d *= self._wchi_exp_mult
-        b3d *= (1 + np.divide.outer(beta_F * k2, self.qb2_2d + k2))
+        # Mpc^4. shape: (ncosmo, qb.size, tb.size)
+        b3d = (
+            self._integrandB3dPhi(k2, plin_interp, beta_F).dot(self.w_weight)
+            * self._wchi_exp_mult
+            * (1 + np.divide.outer(beta_F * k2, self.qb2_2d + k2))
+        )
 
         b3d = np.trapz(b3d, dx=self.dlnk, axis=-1)
         b3d *= self.qb_1d
@@ -323,16 +319,17 @@ class LyaxCmbModel(Model):
             * 10**(kwargs['log10T'] / 2 - 2)
         )
         Om0 = (kwargs['omega_b'] + kwargs['omega_cdm']) / h**2
-        chiz = self.chiz_om0_mpch_fn(Om0) / h
         plin_interp = self.getPlinInterp(**kwargs)
 
         invkp2 = -kp**-2
         k2 = k**2
 
-        _wiener_chiz = self.qtb_2d * self.wiener(np.multiply.outer(chiz, self.tb_2d))
-        _qb2_2d_exp = np.exp(np.multiply.outer(invkp2, self.qb2_2d))
+        self._wchi_exp_mult = (
+            self.qtb_2d * self.wiener(
+                np.multiply.outer(self.chiz_om0_mpch_fn(Om0) / h, self.tb_2d)
+            ) * np.exp(np.multiply.outer(invkp2, self.qb2_2d))
+        ) * self.tb_1d
         self._pb2_3d_exp = np.exp(np.multiply.outer(invkp2, self.pb2_3d))
-        self._wchi_exp_mult = _wiener_chiz * _qb2_2d_exp * self.tb_1d
 
         # Mpc^-1
         norm = h * b_F**2 * self.kappa_om0_interp_hMpc(Om0) / (4. * np.pi**3)
@@ -342,17 +339,17 @@ class LyaxCmbModel(Model):
         )
 
         return norm * np.fromiter((
-            self._integrateB3dFncTrapzUnnorm(
-                _, plin_interp, Om0, h, invkp2, b_F, kwargs['beta_F']
-            ) for _ in k), dtype=np.dtype((float, (h.size, )))).T
+            self._integrateB3dFncTrapzUnnorm(_, plin_interp, kwargs['beta_F'])
+            for _ in k2), dtype=np.dtype((float, (h.size, )))).T
 
     def getP1dTrapz(self, k, **kwargs):
         kp = kwargs['k_p']
         b_F = kwargs['b_F']
         beta_F = kwargs['beta_F']
         q_1 = kwargs['q_1'][:, np.newaxis, np.newaxis]
+        q_2 = kwargs['q_2'][:, np.newaxis, np.newaxis]
         nu1 = kwargs['nu1_th'][:, np.newaxis, np.newaxis] / 2
-        nu0 = -kwargs['nu0_th'][:, np.newaxis, np.newaxis]
+        nu0 = kwargs['nu0_th'][:, np.newaxis, np.newaxis]
         sigma_th = (
             self.getKms2Mpc(**kwargs) * self._sigma_th_pivot_kms
             * 10**(kwargs['log10T'] / 2 - 2)
@@ -368,12 +365,17 @@ class LyaxCmbModel(Model):
         np.sqrt(q_2d, out=q_2d)
 
         p3d = (1 + np.multiply.outer(beta_F, ww2))**2 * plin_interp(q_2d)
+        Delta2 = plin_interp.getDelta2(q_2d)
+        nonlinear = q_1 * Delta2
+        if not np.allclose(q_2, 0):
+            nonlinear += q_2 * Delta2**2
+
         p3d *= np.exp(
             np.multiply.outer(invkp2, qb2_2d)
-            + q_1 * plin_interp.getDelta2(q_2d) * (
+            + nonlinear * (
                 1 - np.power(
                     np.multiply.outer(sigma_th**2, k2_2d), nu1
-                ) * np.power(np.multiply.outer(sigma_th, q_2d), nu0)
+                ) / np.power(np.multiply.outer(sigma_th, q_2d), nu0)
             )
         )
         p1d = np.trapz(p3d * qb2_2d, dx=self.dlnk_p1d, axis=-1)
