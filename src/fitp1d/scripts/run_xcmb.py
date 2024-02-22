@@ -22,7 +22,7 @@ boundary = None
 
 free_params = [
     'omega_b', 'omega_cdm', 'h', 'n_s', 'ln10^{10}A_s',
-    'b_F', 'beta_F', 'k_p'
+    'b_F', 'beta_F', 'k_p', 'q_1', 'log10T', 'nu0_th', 'nu1_th'
 ]
 
 base_cosmo = {
@@ -32,8 +32,11 @@ base_cosmo = {
     'n_s': np.array([Planck18.meta['n']]),
     'ln10^{10}A_s': np.array([3.044]),
     'z': np.array([zeff]),
-    'b_F': np.array([-0.15]), 'beta_F': np.array([1.67]),
-    'k_p': np.array([8.0])  # Mpc^-1
+    'b_F': [-0.12], 'beta_F': [1.7],
+    'k_p': np.array([8.]),  # Mpc^-1
+    'q_1': np.array([0.7]), 'q_2': np.array([0]),
+    'log10T': np.array([4.]),
+    'nu0_th': np.array([1]), 'nu1_th': np.array([1.5])
 }
 
 planck_prior = {
@@ -42,7 +45,6 @@ planck_prior = {
     'h': 0.0042,
     'n_s': 0.0038,
     'ln10^{10}A_s': 0.014,
-    'k_p': 50.,
     'beta_F': 0.01
 }
 
@@ -50,7 +52,12 @@ prior_cosmo = planck_prior.copy()
 prior_cosmo.update({
     'omega_cdm': 0.005,
     'n_s': 0.02,
-    'ln10^{10}A_s': 0.1
+    'ln10^{10}A_s': 0.1,
+    'k_p': 10.,
+    'log10T': 0.05,
+    'q_1': 0.05,
+    'nu0_th': 0.05,
+    'nu1_th': 0.05
 })
 
 
@@ -74,20 +81,21 @@ def getParser():
 
 
 def read_data(myb1ddatadir=myb1ddatadir):
-    k, base_b1d = np.loadtxt(f"{myb1ddatadir}/forecast_base_b1d_24_mpc.txt", unpack=True)
+    k_b1d, base_b1d = np.loadtxt(f"{myb1ddatadir}/forecast_base_b1d_24_mpc.txt", unpack=True)
     b1d_invcov = np.loadtxt(f"{myb1ddatadir}/forecast_base_b1d_invcov_24_mpc.txt")
 
-    _, base_p1d = np.loadtxt(f"{myb1ddatadir}/forecast_base_p1d_24_mpc.txt", unpack=True)
+    k_p1d, base_p1d = np.loadtxt(f"{myb1ddatadir}/forecast_base_p1d_24_mpc.txt", unpack=True)
     p1d_invcov = np.loadtxt(f"{myb1ddatadir}/forecast_base_p1d_invcov_24_mpc.txt")
 
     mpc2kms = getMpc2Kms(zeff, **base_cosmo)
-    k /= mpc2kms
+    k_b1d /= mpc2kms
+    k_p1d /= mpc2kms
     base_b1d *= mpc2kms
     base_p1d *= mpc2kms
     b1d_invcov /= mpc2kms**2
     p1d_invcov /= mpc2kms**2
 
-    return k, base_b1d, b1d_invcov, base_p1d, p1d_invcov
+    return k_b1d, base_b1d, b1d_invcov, k_p1d, base_p1d, p1d_invcov
 
 
 def log_prob_kms_p1d(args):
@@ -105,7 +113,7 @@ def log_prob_kms_p1d(args):
         prior += ((new_cosmo[key][0] - base_cosmo[key][0]) / s)**2
 
     c = model.getMpc2Kms(**new_cosmo)
-    y = model.getP1dTrapz(k * c, **new_cosmo)[0] * c - base_p1d
+    y = model.getP1dTrapz(k_p1d * c, **new_cosmo)[0] * c - base_p1d
     return -0.5 * (y.dot(p1d_invcov.dot(y)) + prior)
 
 
@@ -124,10 +132,10 @@ def log_prob_kms_joint(args):
         prior += ((new_cosmo[key][0] - base_cosmo[key][0]) / s)**2
 
     c = model.getMpc2Kms(**new_cosmo)
-    y = model.getP1dTrapz(k * c, **new_cosmo)[0] * c - base_p1d
+    y = model.getP1dTrapz(k_p1d * c, **new_cosmo)[0] * c - base_p1d
     cost = y.dot(p1d_invcov.dot(y)) + prior
 
-    y = model.integrateB3dTrapz(k * c, **new_cosmo)[0] * c - base_b1d
+    y = model.integrateB3dTrapz(k_b1d * c, **new_cosmo)[0] * c - base_b1d
     cost += y.dot(b1d_invcov.dot(y))
     return -0.5 * cost
 
@@ -135,7 +143,7 @@ def log_prob_kms_joint(args):
 def setGlobals(args):
     global zeff, nwalkers, nproc, nsteps, scale_invcov_p1d, scale_invcov_b1d
     global progbar, model, boundary
-    global k, base_b1d, b1d_invcov, base_p1d, p1d_invcov
+    global k_b1d, base_b1d, b1d_invcov, k_p1d, base_p1d, p1d_invcov
 
     zeff = args.zeff
     nwalkers = args.nwalkers
@@ -152,7 +160,7 @@ def setGlobals(args):
     )
 
     boundary = model.boundary.copy()
-    k, base_b1d, b1d_invcov, base_p1d, p1d_invcov = read_data(args.myb1ddatadir)
+    k_b1d, base_b1d, b1d_invcov, k_p1d, base_p1d, p1d_invcov = read_data(args.myb1ddatadir)
     b1d_invcov *= scale_invcov_b1d
     p1d_invcov *= scale_invcov_p1d
 
