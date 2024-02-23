@@ -91,7 +91,7 @@ class MyPlinInterp(CubicSpline):
     S8_norm = 3 / np.pi / np.sqrt(2)
 
     def __init__(self, log10k, log10p, h=1):
-        self.h = np.empty(log10p.shape[0])
+        self.h = np.ones(log10p.shape[0])
         self.h *= h
         # Add extrapolation data points as done in camb
         # Low k
@@ -276,7 +276,9 @@ class LyaxCmbModel(Model):
         emu_params['z'] = kwargs['z']
 
         # shape (ndim, nkmodes) in Mpc
-        return MyPlinInterp(self._cp_log10k, self._cp_emulator.predictions_np(emu_params))
+        return MyPlinInterp(
+            self._cp_log10k, self._cp_emulator.predictions_np(emu_params),
+            h=emu_params['h'])
 
     def getMpc2Kms(self, zarr=None, **kwargs):
         h = kwargs['h']
