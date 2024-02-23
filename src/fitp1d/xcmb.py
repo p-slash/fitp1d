@@ -2,6 +2,7 @@ import functools
 
 import numpy as np
 from astropy.cosmology import Planck18
+from scipy.integrate import quad
 from scipy.interpolate import CubicSpline, interp1d
 from scipy.special import spherical_jn
 
@@ -19,6 +20,14 @@ def efunc(z, Om0, Or0=Planck18.Ogamma0):
 
 def invEfunc(z, Om0, Or0=Planck18.Ogamma0):
     return np.sqrt(1 - Om0 - Or0 + Om0 * (1 + z)**3 + Or0 * (1 + z)**4)**-1
+
+
+def getLinearGrowth(z1, z2, Om0, Or0=Planck18.Ogamma0):
+    def _integ(x):
+        return (1 + x) * invEfunc(x, Om0, Or0)**3
+    integ1 = quad(_integ, z2, z1)[0]
+    norm = quad(_integ, z1, np.inf)[0]
+    return (1 + integ1 / norm) * efunc(z2, Om0, Or0) * invEfunc(z1, Om0, Or0)
 
 
 def getMpc2Kms(zarr, **kwargs):
@@ -80,9 +89,10 @@ class MyPlinInterp(CubicSpline):
     S8_log10k = np.log10(S8_k)
     S8_dlnk = np.log(S8_k[-1] / S8_k[0]) / (S8_k.size - 1)
     S8_norm = 3 / np.pi / np.sqrt(2)
-    W8_2 = (spherical_jn(1, S8_k * 8.) / (S8_k * 8.))**2 * S8_k**3
 
-    def __init__(self, log10k, log10p):
+    def __init__(self, log10k, log10p, h=1):
+        self.h = np.empty(log10p.shape[0])
+        self.h *= h
         # Add extrapolation data points as done in camb
         # Low k
         delta1 = log10k[0] - MyPlinInterp.LOG10_KMIN
@@ -113,8 +123,10 @@ class MyPlinInterp(CubicSpline):
 
     def sigma8(self):
         P = 10**self._interp(MyPlinInterp.S8_log10k)
+        x = np.multiply.outer(8. * self.h**-1, MyPlinInterp.S8_k)
+        W8_2 = (spherical_jn(1, x) / x)**2 * MyPlinInterp.S8_k**3
         return MyPlinInterp.S8_norm * np.sqrt(
-            np.trapz(P * MyPlinInterp.W8_2, dx=MyPlinInterp.S8_dlnk, axis=-1)
+            np.trapz(P * W8_2, dx=MyPlinInterp.S8_dlnk, axis=-1)
         )
 
     def getDelta2(self, k):
