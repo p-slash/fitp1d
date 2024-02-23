@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import json
 import multiprocessing as mp
 
 import numpy as np
@@ -33,7 +34,7 @@ base_cosmo = {
     'n_s': np.array([Planck18.meta['n']]),
     'ln10^{10}A_s': np.array([3.044]),
     'z': np.array([zeff]),
-    'b_F': [-0.12], 'beta_F': [1.7],
+    'b_F': np.array([-0.12]), 'beta_F': np.array([1.7]),
     'k_p': np.array([8.]),  # Mpc^-1
     'q_1': np.array([0.7]), 'q_2': np.array([0]),
     'log10T': np.array([4.]),
@@ -52,8 +53,8 @@ planck_prior = {
 prior_cosmo = planck_prior.copy()
 prior_cosmo.update({
     'omega_cdm': 0.005,
-    'n_s': 0.02,
-    'ln10^{10}A_s': 0.1,
+    'n_s': 0.05,
+    'ln10^{10}A_s': 0.2,
     'k_p': 10.,
     'log10T': 0.1,
     'q_1': 0.1,
@@ -70,6 +71,7 @@ def getParser():
         "--mycosmopowerdir", help="CosmoPower trained emulator", default=mycosmopowerdir)
     parser.add_argument(
         "--mywienerfilter", help="Wiener filter file", default=mywienerfilter)
+    parser.add_argument("--prior-file", help="Prior dict file")
     parser.add_argument("--zeff", type=float, help="Effective redshift", default=zeff)
     parser.add_argument("--nwalkers", type=int, default=nwalkers)
     parser.add_argument("--nsteps", type=int, default=nsteps)
@@ -143,7 +145,7 @@ def log_prob_kms_joint(args):
 
 def setGlobals(args):
     global zeff, nwalkers, nproc, nsteps, scale_invcov_p1d, scale_invcov_b1d
-    global progbar, model, boundary
+    global progbar, model, boundary, prior_cosmo
     global k_b1d, base_b1d, b1d_invcov, k_p1d, base_p1d, p1d_invcov
 
     zeff = args.zeff
@@ -165,6 +167,10 @@ def setGlobals(args):
     b1d_invcov *= scale_invcov_b1d
     p1d_invcov *= scale_invcov_p1d
 
+    if args.prior_file:
+        with open(args.prior_file, 'r') as f:
+            prior_cosmo.update(json.load(f))
+
 
 def main():
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -174,9 +180,10 @@ def main():
     rshift = 1e-4 * np.random.default_rng().normal(size=(nwalkers, ndim))
     p0 = np.array([base_cosmo[_] for _ in free_params]).T + rshift
 
-    with open(f"run_params_{timestamp}.txt", 'w') as f:
-        print("base_cosmo: ", base_cosmo, file=f)
-        print("prior: ", prior_cosmo, file=f)
+    with open(f"base_cosmo_{timestamp}.txt", 'w') as f:
+        json.dump({k: v.tolist()[0] for k, v in base_cosmo.items()}, f)
+    with open(f"prior_cosmo_{timestamp}.txt", 'w') as f:
+        json.dump(prior_cosmo, f)
 
     with mp.Pool(processes=nproc) as pool:
         sampler = emcee.EnsembleSampler(
