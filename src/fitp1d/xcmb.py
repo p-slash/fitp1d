@@ -3,7 +3,8 @@ import functools
 import numpy as np
 from astropy.cosmology import Planck18
 from scipy.integrate import quad
-from scipy.interpolate import CubicSpline, interp1d
+from scipy.interpolate import CubicSpline
+from scipy.optimize import curve_fit
 from scipy.special import spherical_jn
 
 import cosmopower
@@ -42,14 +43,30 @@ def comovingDistanceMpch(Om0, z, dz=0.01):
     return HUBBLE_DISTANCE_Mpch * np.trapz(invEfunc(zinteg, Om0), dx=dz)
 
 
+def comovingDistanceMpch_d2z(Om0, z, Or0=Planck18.Ogamma0):
+    inv_e = invEfunc(z, Om0)
+    exde_dz = (1 + z)**2 * (1.5 * Om0 + 2 * Or0 * (1 + z))
+    return -HUBBLE_DISTANCE_Mpch * inv_e**3 * exde_dz
+
+
 def kappaKernel(Om0, z, z_source=1100):
-    """ This W_kappa(chi), so it returns in h / Mpc units
+    """ This is W_kappa(chi), so it returns in h / Mpc units
     """
     chi = comovingDistanceMpch(Om0, z)
     chi_S = comovingDistanceMpch(Om0, z_source)
     A = 1.5 * Om0 / HUBBLE_DISTANCE_Mpch**2
 
     return A * (1 + z) * chi * (1. - chi / chi_S)
+
+
+def kappaKerneldChi(Om0, z, z_source=1100):
+    """ This is W'_kappa(chi), so it returns in h^2 / Mpc^2 units
+    """
+    chi = comovingDistanceMpch(Om0, z)
+    chi_S = comovingDistanceMpch(Om0, z_source)
+    A = 1.5 * Om0 / HUBBLE_DISTANCE_Mpch**2
+
+    return A * (1 + z) * (1. - 2 * chi / chi_S)
 
 
 def getF2Kernel(k, q, w):
@@ -68,7 +85,9 @@ def getBispectrumTree(k, q, w, plin_interp):
     # assert k.shape == q.shape
     # assert w.shape == k.shape
 
-    t = np.sqrt(k**2 + q**2 + 2 * k * q * w)
+    t = k**2 + q**2 + 2 * k * q * w
+    np.fmax(1e-32, t, out=t)
+    np.sqrt(t, out=t)
 
     plink = plin_interp(k)
     plinq = plin_interp(q)
@@ -83,7 +102,7 @@ def getBispectrumTree(k, q, w, plin_interp):
     return result
 
 
-class MyPlinInterp(CubicSpline):
+class MyPlinInterp():
     LOG10_KMIN, LOG10_KMAX = np.log10(1e-7), np.log10(1e3)
     S8_k = np.logspace(-3.5, 1.5, 750)
     S8_log10k = np.log10(S8_k)
@@ -133,6 +152,47 @@ class MyPlinInterp(CubicSpline):
         return 10**(self._delta2_interp(np.log10(k)))
 
 
+class MyWienerInterp():
+    def __init__(self, wiener_fname, fit=False):
+        lvals, wiener = np.loadtxt(wiener_fname, unpack=True)
+        self.lvals = np.append(lvals, np.linspace(lvals[-1] + 1, 2**15, 256))
+        wiener = np.append(wiener, np.zeros(256))
+
+        self._interp = CubicSpline(
+            np.log(1 + self.lvals), wiener, bc_type='natural', extrapolate=True)
+
+        self._pfit = None
+        if fit:
+            self.fitSmooth()
+
+    def fitSmooth(self):
+        l1 = np.concatenate((
+            np.linspace(0, 10, 100), np.logspace(1, 2, 100), np.logspace(2, 3, 200)
+        ))
+        w1 = self(l1)
+
+        def wfit_fn(ll, A, a, b, n, m1, m2):
+            x = np.log(1 + ll)
+            return A * x**n * np.exp(a * x**m1 - b * x**m2)
+
+        self._pfit = curve_fit(wfit_fn, l1, w1, bounds=(0, np.inf))[0]
+        wiener = wfit_fn(self.lvals, *self._pfit)
+
+        self._interp = CubicSpline(
+            np.log(1 + self.lvals), wiener, bc_type='natural', extrapolate=True)
+
+    def __call__(self, x):
+        return self._interp(np.log(1 + x))
+
+    def derivative(self, nu=1):
+        f = self._interp.derivative(nu)
+
+        def deriv(x):
+            return f(np.log(1 + x)) / (1 + x)
+
+        return deriv
+
+
 class LyaxCmbModel(Model):
     """docstring for LyaxCmbModel"""
 
@@ -141,11 +201,17 @@ class LyaxCmbModel(Model):
         kappas = np.array([kappaKernel(o, self.z) for o in Om0s])
         self.kappa_om0_interp_hMpc = CubicSpline(Om0s, kappas, bc_type='natural')
 
-    def setRedshift(self, z):
+        kappas = np.array([kappaKerneldChi(o, self.z) for o in Om0s])
+        self.kappa_dchi_om0_interp_hMpc2 = CubicSpline(Om0s, kappas, bc_type='natural')
+
+    def setRedshift(self, z, dz):
         self.z = z
+        self.dz = dz
         self.setKappaOm0Interp()
         self.chiz_om0_mpch_fn = np.vectorize(
             functools.partial(comovingDistanceMpch, z=self.z))
+        self.chiz_d2z_om0_mpch_fn = np.vectorize(
+            functools.partial(comovingDistanceMpch_d2z, z=self.z))
 
     def setIntegrationArrays(self, nlnkbins=None, nwbins=None, klimits=None):
         if klimits:
@@ -158,10 +224,14 @@ class LyaxCmbModel(Model):
             lnk_integ_array, self.dlnk = np.linspace(
                 *np.log(self.klimits), self.nlnkbins, retstep=True)
             self.qb_1d = np.exp(lnk_integ_array)
+
+            tmax = 4096. / self.chiz_om0_mpch_fn(0.3) / 0.65
+            lnk_integ_array, self.dlntb = np.linspace(
+                *np.log([self.klimits[0], tmax]), self.nlnkbins, retstep=True)
             self.tb_1d = np.exp(lnk_integ_array)
 
             self.qb2_1d_p1d, self.dlnk_p1d = np.linspace(
-                *np.log([1e-3, 1e2]), 500, retstep=True)
+                *np.log([5e-5, 1e2]), 500, retstep=True)
             self.qb2_1d_p1d = np.exp(2 * self.qb2_1d_p1d)
 
         if nwbins:
@@ -187,11 +257,11 @@ class LyaxCmbModel(Model):
 
     def __init__(
             self, z, cp_model_dir, wiener_fname,
-            nlnkbins=100, nwbins=10, klimits=[1e-3, 20.],
+            nlnkbins=100, nwbins=10, klimits=[5e-5, 1e2], dz=0.4,
             emu="PKLIN_NN"
     ):
         super().__init__()
-        self.setRedshift(z)
+        self.setRedshift(z, dz)
         self.setIntegrationArrays(nlnkbins, nwbins, klimits)
 
         self._cp_emulator = cosmopower.cosmopower_NN(
@@ -199,10 +269,8 @@ class LyaxCmbModel(Model):
             restore_filename=f'{cp_model_dir}/PKLIN_NN')
         self._cp_log10k = np.log10(np.loadtxt(f"{cp_model_dir}/k_modes.txt"))
 
-        lvals, wiener = np.loadtxt(wiener_fname, unpack=True)
-        self.wiener = interp1d(
-            lvals, wiener, 'cubic', copy=False, bounds_error=False,
-            fill_value=0, assume_sorted=True)
+        self.wiener = MyWienerInterp(wiener_fname, fit=True)
+        self.wiener_deriv = self.wiener.derivative()
 
         self._cosmo_names = [
             'omega_b', 'omega_cdm', 'h', 'n_s', 'ln10^{10}A_s']
@@ -322,7 +390,7 @@ class LyaxCmbModel(Model):
         b3d *= self.qb_1d
         return np.trapz(b3d, dx=self.dlnk, axis=-1)
 
-    def integrateB3dTrapz(self, k, **kwargs):
+    def integrateB3dTrapz(self, k, limber_o1=False, **kwargs):
         # kwargs = self.broadcastKwargs(**kwargs)
         h = kwargs['h']
         kp = kwargs['k_p']
@@ -338,11 +406,12 @@ class LyaxCmbModel(Model):
         invkp2 = -kp**-2
         k2 = k**2
 
+        chiz_tb_3d = np.multiply.outer(self.chiz_om0_mpch_fn(Om0) / h, self.tb_2d)
         self._wchi_exp_mult = (
-            self.qtb_2d * self.wiener(
-                np.multiply.outer(self.chiz_om0_mpch_fn(Om0) / h, self.tb_2d)
-            ) * np.exp(np.multiply.outer(invkp2, self.qb2_2d))
-        ) * self.tb_1d
+            self.qtb_2d * self.wiener(chiz_tb_3d)
+            * np.exp(np.multiply.outer(invkp2, self.qb2_2d))
+            * self.tb_1d
+        )
         self._pb2_3d_exp = np.exp(np.multiply.outer(invkp2, self.pb2_3d))
 
         # Mpc^-1
@@ -352,9 +421,28 @@ class LyaxCmbModel(Model):
             - np.power(np.multiply.outer(sigma_th, k), nu)
         )
 
-        return norm * np.fromiter((
+        b1d = norm * np.fromiter((
             self._integrateB3dFncTrapzUnnorm(_, plin_interp, kwargs['beta_F'])
             for _ in k2), dtype=np.dtype((float, (h.size, )))).T
+
+        if not limber_o1:
+            return b1d
+
+        chi_d2z = self.chiz_d2z_om0_mpch_fn(Om0) * self.dz**2 / 8.
+        b1d *= 1 + chi_d2z * self.kappa_dchi_om0_interp_hMpc2(
+            Om0) / self.kappa_om0_interp_hMpc(Om0)
+
+        self._wchi_exp_mult = (
+            self.qtb_2d * self.wiener_deriv(chiz_tb_3d)
+            * np.exp(np.multiply.outer(invkp2, self.qb2_2d))
+            * self.tb_1d**2
+        )
+
+        b1d += norm * chi_d2z * np.fromiter((
+            self._integrateB3dFncTrapzUnnorm(_, plin_interp, kwargs['beta_F'])
+            for _ in k2), dtype=np.dtype((float, (h.size, )))).T
+
+        return b1d
 
     def getP1dTrapz(self, k, **kwargs):
         kp = kwargs['k_p']
