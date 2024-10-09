@@ -152,7 +152,8 @@ class IonModel(Model):
                 r = (p1[1] / fp1) * (p2[1] / fp2)
                 result += 2 * r * np.cos(self._karr * vmn)
                 all_zero = False
-                print(f"_setTwoionA2Terms({i1}, {p1[0]}, {i2}, {p2[0]}): {vmn:.0f}")
+                print(f"_setTwoionA2Terms({i1},"
+                      f" {p1[0]}, {i2}, {p2[0]}): {vmn:.0f}")
 
             if all_zero:
                 continue
@@ -217,16 +218,23 @@ class IonModel(Model):
         self._setOneionA2Terms()
         self._setTwoionA2Terms()
 
-    def getAllVelocitySeparations(self):
+    def getAllVelocitySeparations(self, w1=0.0):
         vseps = {}
 
         for ion, transitions in IonModel.Transitions.items():
             for wave, fn in transitions:
+                if wave < w1 or LYA_WAVELENGTH < w1:
+                    continue
+
                 key = f'Lya-{ion} ({wave:.0f})'
-                vseps[key] = np.abs(LIGHT_SPEED * np.log(LYA_WAVELENGTH / wave))
+                vseps[key] = np.abs(
+                    LIGHT_SPEED * np.log(LYA_WAVELENGTH / wave))
 
         for ion, transitions in IonModel.Transitions.items():
             for p1, p2 in itertools.combinations(transitions, 2):
+                if p1[0] < w1 or p2[0] < w1:
+                    continue
+
                 key = f'{ion} ({p1[0]:.0f}-{p2[0]:.0f})'
                 vseps[key] = np.abs(LIGHT_SPEED * np.log(p2[0] / p1[0]))
 
@@ -236,6 +244,9 @@ class IonModel(Model):
             t2 = IonModel.Transitions[i2]
 
             for (p1, p2) in itertools.product(t1, t2):
+                if p1[0] < w1 or p2[0] < w1:
+                    continue
+
                 key = f"{i1} ({p1[0]:.0f}) - {i2} ({p2[0]:.0f})"
                 vseps[key] = np.abs(LIGHT_SPEED * np.log(p2[0] / p1[0]))
 
