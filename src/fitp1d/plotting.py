@@ -10,7 +10,8 @@ from getdist import plots as getdist_plots
 
 def plotEllipseMinimizer(
         mini, key1, key2, param_labels, color,
-        ax=None, label=None, box=False, truth={}, **kwargs
+        ax=None, label=None, box=False, truth={}, prior={},
+        **kwargs
 ):
     if ax is None:
         ax = plt.gca()
@@ -66,6 +67,21 @@ def plotEllipseMinimizer(
         if n == 1:
             ell.set_label(label)
         ax.add_patch(ell)
+
+        if key1 in prior and key2 in prior:
+            px, py = prior[key1], prior[key2]
+            ax.add_patch(Ellipse(
+                (mean_x, mean_y), width=px * 2 * n, height=py * 2 * n, ls=ls,
+                fill=False, ec='k', lw=2, **kwargs
+            ))
+        elif key1 in prior:
+            px = prior[key1]
+            ax.axvspan(mean_x - n * px, mean_x + n * px,
+                       alpha=0.5 * alpha / n, fc='k')
+        elif key2 in prior:
+            py = prior[key2]
+            ax.axhspan(mean_y - n * py, mean_y + n * py,
+                       alpha=0.5 * alpha / n, fc='k')
 
     ax.set_xlabel(rf"${param_labels[key1]}$")
     ax.set_ylabel(rf"${param_labels[key2]}$")
