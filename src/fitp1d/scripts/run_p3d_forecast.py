@@ -283,4 +283,5 @@ def main():
     args = getParser().parse_args()
     setGlobals(args)
     minimize()
-    sample()
+    if nsamples > 0:
+        sample()
