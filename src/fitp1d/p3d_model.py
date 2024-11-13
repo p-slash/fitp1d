@@ -82,6 +82,15 @@ class LyaP3DArinyoModel(Model):
             'b_hcd': 'b_{HCD}', 'beta_hcd': '\\beta_{HCD}', 'L_hcd': 'L_{HCD}'
         }
 
+        self.prior = {
+            'omega_b': 0.00014,
+            'omega_cdm': 0.00091,
+            'h': 0.0042,
+            'n_s': 0.0038,
+            'ln10^{10}A_s': 0.014,
+            'k_p': 4.8, 'q_1': 0.2, 'beta_hcd': 0.09
+        }
+
         if "mnu" in emu:
             self._cosmo_names.append("m_nu")
             self.initial['m_nu'] = 0.06
@@ -123,6 +132,18 @@ class LyaP3DArinyoModel(Model):
     def releaseCosmology(self):
         self._plin = None
         self._cosmo_fixed = False
+
+    def getPrior(self, **kwargs):
+        prior = 0
+        for key, s in self.prior.items():
+            prior += ((kwargs[key][0] - self.initial[key][0]) / s)**2
+        return prior
+
+    def getPriorVector(self, ndim, **kwargs):
+        prior = np.zeros(ndim)
+        for key, s in self.prior.items():
+            prior += ((kwargs[key] - self.initial[key][0]) / s)**2
+        return prior
 
     def getCambInterpolator(self, **kwargs):
         """ Vectorization is not possible """

@@ -1,5 +1,6 @@
 import argparse
 import datetime
+import json
 import multiprocessing as mp
 
 import astropy.io.fits
@@ -17,23 +18,15 @@ use_mp = False  # This is not supported with vectorized log_prob.
 progbar = False
 vectorize = False
 nl = 4
-nwalkers = 32
-nproc = 4
+nwalkers = 40
+nproc = 5
 nsamples = 5000
-
-prior_cosmo = {
-    'omega_b': 0.00014 * 1.0,
-    'omega_cdm': 0.00091 * 5.0,
-    'h': 0.0042 * 1.0,
-    'n_s': 0.0038 * 5.0,
-    'ln10^{10}A_s': 0.014 * 1.0,
-    'k_p': 4.8, 'q_1': 0.2
-}
 
 model, base_cosmo = None, None
 k, p2fit, fisher = None, None, None
 mcmc_package = None
 free_params, fix_params, all_params = [], [], []
+timestamp = "000_000"
 
 
 def getParser():
@@ -44,10 +37,15 @@ def getParser():
     parser.add_argument(
         "--mycosmopowerdir", help="CosmoPower trained emulator",
         default=mycosmopowerdir)
+    parser.add_argument("--prior-file",
+                        help="Prior updates. Non-present keys "
+                             "will be existing Planck18 defaults")
     parser.add_argument("--zeff", type=float, help="Effective redshift",
                         default=2.4)
     parser.add_argument("--fix-cosmology", action="store_true",
                         help="Do not sample cosmology.")
+    parser.add_argument("--fit-hcds", action="store_true",
+                        help="Fit for b_HCD and beta_HCD")
     parser.add_argument("--use-camb", action="store_true",
                         help="Use CAMB instead of cosmopower emu.")
     parser.add_argument("--mock-truth", action="store_true",
@@ -111,17 +109,21 @@ def setGlobals(args):
     if args.mock_truth:
         p2fit = np.hstack(model.getPls(**base_cosmo))[0]
 
+    free_params = ['b_F', 'beta_F', 'q_1', 'k_p']
     if args.fix_cosmology:
-        free_params = ['b_F', 'beta_F', 'q_1', 'k_p']
         model.fixCosmology(**base_cosmo)
     else:
-        free_params = [
-            'omega_b', 'omega_cdm', 'h', 'n_s', 'ln10^{10}A_s',
-            'b_F', 'beta_F', 'q_1', 'k_p'
-        ]
+        free_params += ['omega_b', 'omega_cdm', 'h', 'n_s', 'ln10^{10}A_s']
+
+    if args.fit_hcds:
+        free_params += ['b_hcd', 'beta_hcd']
 
     fix_params = [_ for _ in model._broadcasted_params if _ not in free_params]
     all_params = list(model.initial.keys())
+
+    if args.prior_file:
+        with open(args.prior_file, 'r') as f:
+            model.prior.update(json.load(f))
 
     if args.mcmc == "emcee":
         import emcee as mcmc_package
@@ -137,13 +139,9 @@ def cost(args):
         new_cosmo[all_params[i]] = np.array([x])
 
     # new_cosmo = model.broadcastKwargs(**new_cosmo)
-    prior = 0
-    for key, s in prior_cosmo.items():
-        prior += ((new_cosmo[key][0] - base_cosmo[key][0]) / s)**2
-
     y = np.hstack(model.getPls(**new_cosmo))[0] - p2fit
 
-    return y.dot(fisher.dot(y)) + prior
+    return y.dot(fisher.dot(y)) + model.getPrior(**new_cosmo)
 
 
 def log_prob_vectorized(args):
@@ -160,14 +158,12 @@ def log_prob_vectorized(args):
     for key in new_cosmo:
         new_cosmo[key] = new_cosmo[key][w]
 
-    prior = np.zeros(w.sum())
-    for key, s in prior_cosmo.items():
-        prior += ((new_cosmo[key] - model.initial[key][0]) / s)**2
-
+    ndim = w.sum()
     result = np.empty(args.shape[0])
 
     y = np.hstack(model.getPls(**new_cosmo)) - p2fit
-    y = -0.5 * (np.sum(y.dot(fisher) * y, axis=1) + prior)
+    y = -0.5 * (np.sum(y.dot(fisher) * y, axis=1)
+                + model.getPriorVector(ndim, **new_cosmo))
 
     result[w] = y
     result[~w] = -np.inf
@@ -182,15 +178,11 @@ def log_prob_nonvectorized(args):
     new_cosmo = model.broadcastKwargs(**new_cosmo)
 
     for key, (b1, b2) in model.boundary.items():
-        if (new_cosmo[key] <= b1) | (b2 <= new_cosmo[key]):
+        if (new_cosmo[key][0] <= b1) | (b2 <= new_cosmo[key][0]):
             return -np.inf
 
-    prior = 0
-    for key, s in prior_cosmo.items():
-        prior += ((new_cosmo[key][0] - model.initial[key][0]) / s)**2
-
     y = np.hstack(model.getPls(**new_cosmo))[0] - p2fit
-    return -0.5 * (y.dot(fisher.dot(y)) + prior)
+    return -0.5 * (y.dot(fisher.dot(y)) + model.getPrior(**new_cosmo))
 
 
 def minimize():
@@ -225,16 +217,16 @@ def minimize():
             fitp1d.plotting.plotEllipseMinimizer(
                 mini, key1, key2, model.param_labels, 'tab:blue',
                 ax=axs[j // ncols, j % ncols],
-                alpha=0.6, box=True, truth=model.initial, prior=prior_cosmo
+                alpha=0.6, box=True, truth=model.initial, prior=model.prior
             )
             j += 1
 
-    plt.savefig(f"minimizer-ellipses.pdf",
+    plt.savefig(f"minimizer-ellipses_{timestamp}.pdf",
                 dpi=200, bbox_inches='tight')
     plt.close()
 
 
-def sample(drop=500, thin=10):
+def sample(drop=400, thin=40):
     if vectorize:
         log_prob = log_prob_vectorized
     else:
@@ -256,7 +248,6 @@ def sample(drop=500, thin=10):
             nwalkers, ndim, log_prob, vectorize=vectorize)
         sampler.run_mcmc(p0, nsamples, progress=progbar)
 
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     samples = sampler.get_chain(flat=True)
     np.savetxt(f"chains_{timestamp}_p3d.txt",
                np.column_stack((samples, sampler.get_log_prob(flat=True))),
@@ -265,10 +256,10 @@ def sample(drop=500, thin=10):
     samples = sampler.get_chain(flat=True, thin=thin, discard=drop)
     samples = MCSamples(samples=samples, names=free_params, label="P3D")
 
-    prior_keys = list(prior_cosmo.keys())
+    prior_keys = list(model.prior.keys())
     prior_chains = np.array([
         np.random.default_rng().normal(
-            loc=base_cosmo[key], scale=prior_cosmo[key], size=nsamples
+            loc=base_cosmo[key], scale=model.prior[key], size=20000
         ) for key in prior_keys
     ]).T
     np.savetxt(f"chains_{timestamp}_prior.txt",
@@ -281,11 +272,13 @@ def sample(drop=500, thin=10):
         [samples, prior_chains],
         filled=[True, False],
         contour_colors=["tab:blue", 'k'])
-    plt.savefig(f"corner_plot.pdf", dpi=200, bbox_inches='tight')
+    plt.savefig(f"corner_plot_{timestamp}.pdf", dpi=200, bbox_inches='tight')
     plt.close()
 
 
 def main():
+    global timestamp
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     mp.set_start_method('fork')
     args = getParser().parse_args()
     setGlobals(args)
