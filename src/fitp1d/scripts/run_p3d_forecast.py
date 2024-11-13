@@ -61,7 +61,7 @@ def getParser():
     parser.add_argument("--progbar", action="store_true")
     parser.add_argument("--vectorize", action="store_true",
                         help="Use vectorized log_prob")
-    parser.add_argument("--mcmc", choice=['emcee', 'zeus'], default='emcee',
+    parser.add_argument("--mcmc", choices=['emcee', 'zeus'], default='emcee',
                         help="MCMC package to use.")
 
     return parser
