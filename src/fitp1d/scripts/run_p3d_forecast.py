@@ -46,6 +46,8 @@ def getParser():
                         help="Do not sample cosmology.")
     parser.add_argument("--fit-hcds", action="store_true",
                         help="Fit for b_HCD and beta_HCD")
+    parser.add_argument("--fit-SiIII", action="store_true",
+                        help="Fit for b_SiIII")
     parser.add_argument("--use-camb", action="store_true",
                         help="Use CAMB instead of cosmopower emu.")
     parser.add_argument("--mock-truth", action="store_true",
@@ -117,6 +119,9 @@ def setGlobals(args):
 
     if args.fit_hcds:
         free_params += ['b_hcd', 'beta_hcd']
+
+    if args.fit_SiIII:
+        free_params.append('b_SiIII_1207')
 
     fix_params = [_ for _ in model._broadcasted_params if _ not in free_params]
     all_params = list(model.initial.keys())
@@ -205,11 +210,11 @@ def minimize():
     nplots = len(free_params)
     nplots *= nplots - 1
     nplots //= 2
-    ncols = 4
+    ncols = round(np.sqrt(nplots))
     nrows = int(np.ceil(nplots / ncols))
     fig, axs = plt.subplots(
         nrows, ncols, figsize=(5 * ncols, 5 * nrows),
-        gridspec_kw={'hspace': 0.2, 'wspace': 0.2})
+        gridspec_kw={'hspace': 0.2, 'wspace': 0.3})
 
     j = 0
     for i, key1 in enumerate(free_params[:-1]):
@@ -254,7 +259,8 @@ def sample(drop=400, thin=40):
                header=' '.join(free_params) + ' log_like')
 
     samples = sampler.get_chain(flat=True, thin=thin, discard=drop)
-    samples = MCSamples(samples=samples, names=free_params, label="P3D")
+    samples = MCSamples(samples=samples, names=free_params, label="P3D",
+                        labels=[model.param_labels[_] for _ in free_params])
 
     prior_keys = list(model.prior.keys())
     prior_chains = np.array([
@@ -265,7 +271,8 @@ def sample(drop=400, thin=40):
     np.savetxt(f"chains_{timestamp}_prior.txt",
                prior_chains, header=' '.join(free_params))
     prior_chains = MCSamples(
-        samples=prior_chains, names=prior_keys, label="Prior")
+        samples=prior_chains, names=prior_keys, label="Prior",
+        labels=[model.param_labels[_] for _ in prior_keys])
 
     g = plots.get_subplot_plotter()
     g.triangle_plot(
@@ -274,6 +281,27 @@ def sample(drop=400, thin=40):
         contour_colors=["tab:blue", 'k'])
     plt.savefig(f"corner_plot_{timestamp}.pdf", dpi=200, bbox_inches='tight')
     plt.close()
+
+    lya_nuis = [_ for _ in model._lya_nuis if _ in free_params]
+    g = plots.get_subplot_plotter()
+    g.triangle_plot(
+        [samples, prior_chains], lya_nuis,
+        filled=[True, False],
+        contour_colors=["tab:blue", 'k'])
+    plt.savefig(f"corner_plot_lya_nuis_{timestamp}.pdf",
+                dpi=200, bbox_inches='tight')
+    plt.close()
+
+    cosmo_p = [_ for _ in model._cosmo_names if _ in free_params]
+    if cosmo_p:
+        g = plots.get_subplot_plotter()
+        g.triangle_plot(
+            [samples, prior_chains], cosmo_p,
+            filled=[True, False],
+            contour_colors=["tab:blue", 'k'])
+        plt.savefig(f"corner_plot_cosmo_{timestamp}.pdf",
+                    dpi=200, bbox_inches='tight')
+        plt.close()
 
 
 def main():
