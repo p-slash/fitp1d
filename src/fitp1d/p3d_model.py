@@ -20,6 +20,8 @@ class LyaP3DArinyoModel(Model):
         self.z = z
         self._muarr, self._dmu = np.linspace(0, 1, nmu, retstep=True)
         self._k, self._kk, self._mmuu = None, None, None
+        self._k3, self.apo_halo = None, None
+        self._kmax_halo = 1.5
         self._use_camb = use_camb
         self.pls = []
         for _ in range(nl):
@@ -96,8 +98,20 @@ class LyaP3DArinyoModel(Model):
             self.initial['m_nu'] = 0.06
             self.param_labels['m_nu'] = 'm_{\nu}'
 
+    def _apodize(self, k):
+        return np.cos((2.0 * k / self._kmax_halo - 1.0) * np.pi / 2.0)**2
+
     def cacheK(self, k):
         self._k = k.copy()
+        self._k3 = self._k**3 / (2 * np.pi**2)
+        w = (self._kmax_halo / 2.0) < self._k
+        if np.any(w):
+            self.apo_halo = np.piecewise(
+                self._k, [~w, w & (self._k < self._kmax_halo)],
+                [1.0, self._apodize, 0.0])
+            self.apo_halo = self.apo_halo[:, None, None]
+        else:
+            self.apo_halo = 1
         self._kk, self._mmuu = np.meshgrid(k, self._muarr, indexing='ij')
 
     def broadcastKwargs(self, **kwargs):
@@ -197,8 +211,6 @@ class LyaP3DArinyoModel(Model):
         mu = mu[None, :, :]
         k = k[None, :, :]
 
-        # k_kp = np.multiply.outer(k_p**-1, k)
-        # k_knu = np.multiply.outer(k_nu**-1, k)
         mu2 = mu**2
         bbeta_lya = b_F * (1.0 + beta_F * mu2)
         kz = k * mu
@@ -211,7 +223,7 @@ class LyaP3DArinyoModel(Model):
         lnD -= k_kp**2
 
         result = plin * (
-            bbeta_lya * bbeta_lya * lnD + (
+            bbeta_lya * bbeta_lya * lnD + self.apo_halo * (
                 + 2.0 * bbeta_lya * bbeta_hcd_kz
                 + bbeta_hcd_kz * bbeta_hcd_kz
                 # + 2.0 * bbeta_lya * bbeta_siIII * cos(kz * dr_SiIII) * sqrt(lnD * dfog)
@@ -233,8 +245,6 @@ class LyaP3DArinyoModel(Model):
         nu_1 = kwargs['nu_1'][:, None, None]
         mu = mu[None, :, :]
 
-        # k_kp = np.multiply.outer(k_p**-1, k)
-        # k_knu = np.multiply.outer(k_nu**-1, k)
         mu2 = mu**2
         bbeta_lya = b_F * (1.0 + beta_F * mu2)
         kz = k[None, :, :] * mu
@@ -245,7 +255,7 @@ class LyaP3DArinyoModel(Model):
             1.0 - ((kz / k_nu)**nu_1 / k_knu**nu_0) * 10**(nu_1 - nu_0))
         lnD -= (k**2)[None, :, :] / (kwargs['k_p']**2)[:, None, None]
 
-        result = bbeta_lya * bbeta_lya * lnD + (
+        result = bbeta_lya * bbeta_lya * lnD + self.apo_halo * (
             + 2.0 * bbeta_lya * bbeta_hcd_kz
             + bbeta_hcd_kz * bbeta_hcd_kz
             # + 2.0 * bbeta_lya * bbeta_siIII * cos(kz * dr_SiIII) * sqrt(lnD * dfog)
@@ -260,7 +270,7 @@ class LyaP3DArinyoModel(Model):
         else:
             plin_interp = self.getPlinInterp(**kwargs)
             plin = plin_interp(self._k)
-        delta2 = plin * self._k**3 / (2 * np.pi**2)
+        delta2 = plin * self._k3
         tk = self._getTransfer3D(self._kk, self._mmuu, delta2, **kwargs)
 
         res = []
