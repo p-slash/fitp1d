@@ -257,13 +257,12 @@ def sample(drop=500, thin=10):
         sampler.run_mcmc(p0, nsamples, progress=progbar)
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    samples = sampler.get_chain()
+    samples = sampler.get_chain(flat=True)
     np.savetxt(f"chains_{timestamp}_p3d.txt",
-               np.column_stack((samples.reshape((-1, ndim), order='F'),
-                                sampler.get_log_prob(flat=True))),
+               np.column_stack((samples, sampler.get_log_prob(flat=True))),
                header=' '.join(free_params) + ' log_like')
 
-    samples = samples[drop::thin].reshape((-1, ndim), order='F')
+    samples = sampler.get_chain(flat=True, thin=thin, discard=drop)
     samples = MCSamples(samples=samples, names=free_params, label="P3D")
 
     prior_keys = list(prior_cosmo.keys())
