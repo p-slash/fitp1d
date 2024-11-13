@@ -6,7 +6,6 @@ import astropy.io.fits
 import iminuit
 import numpy as np
 import matplotlib.pyplot as plt
-import zeus
 from getdist import plots, MCSamples
 
 import fitp1d.plotting
@@ -33,6 +32,7 @@ prior_cosmo = {
 
 model, base_cosmo = None, None
 k, p2fit, fisher = None, None, None
+mcmc_package = None
 free_params, fix_params, all_params = [], [], []
 
 
@@ -52,12 +52,17 @@ def getParser():
                         help="Use CAMB instead of cosmopower emu.")
     parser.add_argument("--mock-truth", action="store_true",
                         help="Replace data with exact p3d model.")
-    parser.add_argument("--nwalkers", type=int, default=nwalkers)
-    parser.add_argument("--nproc", type=int, default=nproc)
-    parser.add_argument("--nsamples", type=int, default=nsamples)
+    parser.add_argument("--nwalkers", type=int, default=nwalkers,
+                        help="Number of walkers.")
+    parser.add_argument("--nproc", type=int, default=nproc,
+                        help="Number of processes.")
+    parser.add_argument("--nsamples", type=int, default=nsamples,
+                        help="Number of samples.")
     parser.add_argument("--progbar", action="store_true")
     parser.add_argument("--vectorize", action="store_true",
                         help="Use vectorized log_prob")
+    parser.add_argument("--mcmc", choice=['emcee', 'zeus'], default='emcee',
+                        help="MCMC package to use.")
 
     return parser
 
@@ -86,6 +91,7 @@ def setGlobals(args):
     global nwalkers, nsamples, progbar, nproc, vectorize, use_mp
     global model, base_cosmo, free_params, fix_params, all_params
     global k, p2fit, fisher
+    global mcmc_package
 
     nwalkers = args.nwalkers
     nproc = args.nproc
@@ -116,6 +122,13 @@ def setGlobals(args):
 
     fix_params = [_ for _ in model._broadcasted_params if _ not in free_params]
     all_params = list(model.initial.keys())
+
+    if args.mcmc == "emcee":
+        import emcee as mcmc_package
+    elif args.mcmc == "zeus":
+        import zeus as mcmc_package
+    else:
+        raise Exception("Unsupported MCMC package")
 
 
 def cost(args):
@@ -154,7 +167,7 @@ def log_prob_vectorized(args):
     result = np.empty(args.shape[0])
 
     y = np.hstack(model.getPls(**new_cosmo)) - p2fit
-    y = -0.5 * np.sum(y.dot(fisher) * y, axis=1) + prior
+    y = -0.5 * (np.sum(y.dot(fisher) * y, axis=1) + prior)
 
     result[w] = y
     result[~w] = -np.inf
@@ -177,7 +190,7 @@ def log_prob_nonvectorized(args):
         prior += ((new_cosmo[key][0] - model.initial[key][0]) / s)**2
 
     y = np.hstack(model.getPls(**new_cosmo))[0] - p2fit
-    return -0.5 * y.dot(fisher.dot(y)) + prior
+    return -0.5 * (y.dot(fisher.dot(y)) + prior)
 
 
 def minimize():
@@ -233,13 +246,13 @@ def sample(drop=500, thin=10):
 
     if use_mp:
         with mp.Pool(processes=nproc) as pool:
-            sampler = zeus.EnsembleSampler(
+            sampler = mcmc_package.EnsembleSampler(
                 nwalkers, ndim, log_prob_nonvectorized,
                 vectorize=False, pool=pool
             )
             sampler.run_mcmc(p0, nsamples, progress=progbar)
     else:
-        sampler = zeus.EnsembleSampler(
+        sampler = mcmc_package.EnsembleSampler(
             nwalkers, ndim, log_prob, vectorize=vectorize)
         sampler.run_mcmc(p0, nsamples, progress=progbar)
 
