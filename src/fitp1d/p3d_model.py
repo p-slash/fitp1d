@@ -43,7 +43,8 @@ class LyaP3DArinyoModel(Model):
         self._plin = None
 
         self._lya_nuis = [
-            'b_F', 'beta_F', 'q_1', '10kv', 'nu_0', 'nu_1', 'k_p']
+            'b_F', 'beta_F', 'q_1', '10kv', 'nu_0', 'nu_1', 'k_p',
+            'b_hcd', 'beta_hcd', 'L_hcd']
         self._broadcasted_params = self._cosmo_names + self._lya_nuis
 
         self.initial = {
@@ -56,6 +57,8 @@ class LyaP3DArinyoModel(Model):
             'q_1': np.array([0.796]), '10kv': np.array([3.922]),
             'nu_0': np.array([1.267]), 'nu_1': np.array([1.65]),
             'k_p': np.array([16.802]),  # Mpc^-1
+            'b_hcd': np.array([-0.05]), 'beta_hcd': np.array([0.7]),
+            'L_hcd': np.array([14.8])
         }
 
         self.boundary = {
@@ -64,8 +67,10 @@ class LyaP3DArinyoModel(Model):
             'n_s': (0.84, 1.1),
             'h': (0.64, 0.82),
             'ln10^{10}A_s': (1.61, 3.91),
-            'b_F': (-2, 0), 'beta_F': (1, 3), 'q_1': (0, 4), '10kv': (0, 1e2),
-            'nu_0': (0, 10), 'nu_1': (0, 10), 'k_p': (0, 1e3)
+            'b_F': (-2.0, 0.0), 'beta_F': (1.0, 3.0), 'q_1': (0.0, 4.0),
+            '10kv': (0.0, 1e2), 'nu_0': (0.0, 10.0), 'nu_1': (0.0, 10.0),
+            'k_p': (0.0, 1e3),
+            'b_hcd': (-0.2, 0.0), 'beta_hcd': (0.0, 2.0), 'L_hcd': (0.0, 40.0)
         }
 
         self.param_labels = {
@@ -73,7 +78,8 @@ class LyaP3DArinyoModel(Model):
             'h': 'h', 'n_s': 'n_s', 'ln10^{10}A_s': 'ln(10^{10} A_s)',
             'b_F': 'b_F', 'beta_F': '\\beta_F', 'k_p': 'k_p',
             '10kv': 'k_\\nu [10^{-1}~Mpc]',
-            'q_1': 'q_1', 'nu_0': '\\nu_0', 'nu_1': '\\nu_1'
+            'q_1': 'q_1', 'nu_0': '\\nu_0', 'nu_1': '\\nu_1',
+            'b_hcd': 'b_{HCD}', 'beta_hcd': '\\beta_{HCD}', 'L_hcd': 'L_{HCD}'
         }
 
         if "mnu" in emu:
@@ -159,39 +165,86 @@ class LyaP3DArinyoModel(Model):
 
     def getP3D(self, k, mu, plin, **kwargs):
         b_F = kwargs['b_F'][:, None, None]
+        b_HCD = kwargs['b_hcd'][:, None, None]
         beta_F = kwargs['beta_F'][:, None, None]
+        beta_HCD = kwargs['beta_hcd'][:, None, None]
+        L_HCD = kwargs['L_hcd'][:, None, None]
         q_1 = kwargs['q_1'][:, None, None]
         k_nu = kwargs['10kv'][:, None, None]
         nu_0 = kwargs['nu_0'][:, None, None]
         nu_1 = kwargs['nu_1'][:, None, None]
-        k_p = kwargs['k_p'][:, None, None]
         mu = mu[None, :, :]
         k = k[None, :, :]
 
-        k_kp = k / k_p
         # k_kp = np.multiply.outer(k_p**-1, k)
-        k_knu = k / k_nu
         # k_knu = np.multiply.outer(k_nu**-1, k)
         mu2 = mu**2
         bbeta_lya = b_F * (1.0 + beta_F * mu2)
-        # bbeta_hcd_kz = b_HCD * (1 + beta_HCD * mu2) * np.exp(-L_HCD * k * mu)
+        kz = k * mu
+        bbeta_hcd_kz = b_HCD * (1 + beta_HCD * mu2) * np.exp(-L_HCD * kz)
 
+        k_knu = k / k_nu
         lnD = plin * k**3 / (2 * np.pi**2) * q_1 * (
-            1.0 - ((k_knu * mu)**nu_1 / k_knu**nu_0) * 10**(nu_1 - nu_0))
+            1.0 - ((kz / k_nu)**nu_1 / k_knu**nu_0) * 10**(nu_1 - nu_0))
+        k_kp = k / kwargs['k_p'][:, None, None]
         lnD -= k_kp**2
 
-        return plin * bbeta_lya * bbeta_lya * np.exp(lnD)
+        result = plin * (
+            bbeta_lya * bbeta_lya * lnD + (
+                + 2.0 * bbeta_lya * bbeta_hcd_kz
+                + bbeta_hcd_kz * bbeta_hcd_kz
+                # + 2.0 * bbeta_lya * bbeta_siIII * cos(kz * dr_SiIII) * sqrt(lnD * dfog)
+                # + bbeta_siIII * bbeta_siIII * dfog)
+            )
+        )
+
+        return result
+
+    def _getTransfer3D(self, k, mu, delta2, **kwargs):
+        b_F = kwargs['b_F'][:, None, None]
+        b_HCD = kwargs['b_hcd'][:, None, None]
+        beta_F = kwargs['beta_F'][:, None, None]
+        beta_HCD = kwargs['beta_hcd'][:, None, None]
+        L_HCD = kwargs['L_hcd'][:, None, None]
+        q_1 = kwargs['q_1'][:, None, None]
+        k_nu = kwargs['10kv'][:, None, None]
+        nu_0 = kwargs['nu_0'][:, None, None]
+        nu_1 = kwargs['nu_1'][:, None, None]
+        mu = mu[None, :, :]
+
+        # k_kp = np.multiply.outer(k_p**-1, k)
+        # k_knu = np.multiply.outer(k_nu**-1, k)
+        mu2 = mu**2
+        bbeta_lya = b_F * (1.0 + beta_F * mu2)
+        kz = k[None, :, :] * mu
+        bbeta_hcd_kz = b_HCD * (1 + beta_HCD * mu2) * np.exp(-L_HCD * kz)
+
+        k_knu = k[None, :, :] / k_nu
+        lnD = delta2[:, :, None] * q_1 * (
+            1.0 - ((kz / k_nu)**nu_1 / k_knu**nu_0) * 10**(nu_1 - nu_0))
+        lnD -= (k**2)[None, :, :] / (kwargs['k_p']**2)[:, None, None]
+
+        result = bbeta_lya * bbeta_lya * lnD + (
+            + 2.0 * bbeta_lya * bbeta_hcd_kz
+            + bbeta_hcd_kz * bbeta_hcd_kz
+            # + 2.0 * bbeta_lya * bbeta_siIII * cos(kz * dr_SiIII) * sqrt(lnD * dfog)
+            # + bbeta_siIII * bbeta_siIII * dfog)
+        )
+
+        return result
 
     def getPls(self, **kwargs):
         if self._cosmo_fixed:
-            plin = self._plin(self._kk)
+            plin = self._plin(self._k)
         else:
             plin_interp = self.getPlinInterp(**kwargs)
-            plin = plin_interp(self._kk)
-        p3d = self.getP3D(self._kk, self._mmuu, plin, **kwargs)
+            plin = plin_interp(self._k)
+        delta2 = plin * self._k**3 / (2 * np.pi**2)
+        tk = self._getTransfer3D(self._kk, self._mmuu, delta2, **kwargs)
 
         res = []
         for l, pl in enumerate(self.pls):
-            res.append((4 * l + 1) * np.trapz(p3d * pl, dx=self._dmu, axis=-1))
+            res.append(
+                plin * (4 * l + 1) * np.trapz(tk * pl, dx=self._dmu, axis=-1))
 
         return res
