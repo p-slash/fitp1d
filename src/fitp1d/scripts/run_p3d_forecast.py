@@ -48,6 +48,8 @@ def getParser():
                         help="Fit for b_HCD and beta_HCD")
     parser.add_argument("--fit-SiIII", action="store_true",
                         help="Fit for b_SiIII")
+    parser.add_argument("--fit-sky", action="store_true",
+                        help="Fit the sky model")
     parser.add_argument("--use-camb", action="store_true",
                         help="Use CAMB instead of cosmopower emu.")
     parser.add_argument("--mock-truth", action="store_true",
@@ -122,6 +124,9 @@ def setGlobals(args):
 
     if args.fit_SiIII:
         free_params.append('b_SiIII_1207')
+
+    if args.fit_sky:
+        free_params += ['a_sky', 'sigma_sky']
 
     fix_params = [_ for _ in model._broadcasted_params if _ not in free_params]
     all_params = list(model.initial.keys())

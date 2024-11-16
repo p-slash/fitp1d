@@ -7,6 +7,13 @@ from fitp1d.xcmb import MyPlinInterp
 cosmo_package = None
 
 
+def getPowerSkyModel(k, mu, a_sky, sigma_sky):
+    # This multiplication is preferable when broadcasting
+    x = k**2 * (1.0 - mu**2)
+    y = -0.5 * sigma_sky**2
+    return a_sky * np.exp(x * y)
+
+
 class LyaP3DArinyoModel(Model):
     """docstring for LyaxCmbModel"""
 
@@ -53,7 +60,8 @@ class LyaP3DArinyoModel(Model):
         self._lya_nuis = [
             'b_F', 'beta_F', 'q_1', '10kv', 'nu_0', 'nu_1', 'k_p',
             'b_hcd', 'beta_hcd', 'L_hcd',
-            'b_SiIII_1207', 'beta_metal', 'sigma_v']
+            'b_SiIII_1207', 'beta_metal', 'sigma_v',
+            'a_sky', 'sigma_sky']
         self._broadcasted_params = self._cosmo_names + self._lya_nuis
 
         self.initial = {
@@ -69,7 +77,8 @@ class LyaP3DArinyoModel(Model):
             'b_hcd': np.array([-0.05]), 'beta_hcd': np.array([0.7]),
             'L_hcd': np.array([14.8]),
             'b_SiIII_1207': np.array([-9.8e-3]), 'beta_metal': np.array([0.5]),
-            'sigma_v': np.array([5.0])  # 5.0
+            'sigma_v': np.array([5.0]),  # 5.0
+            'a_sky': np.array([0.0]), 'sigma_sky': np.array([45.0])
         }
 
         self.boundary = {
@@ -83,7 +92,8 @@ class LyaP3DArinyoModel(Model):
             'k_p': (0.0, 1e2),
             'b_hcd': (-0.2, 0.0), 'beta_hcd': (0.0, 2.0), 'L_hcd': (0.0, 40.0),
             'b_SiIII_1207': (-0.5, 0), 'beta_metal': (0.0, 2.0),
-            'sigma_v': (0.0, 40.0)
+            'sigma_v': (0.0, 40.0),
+            'a_sky': (0.0, 10.0), 'sigma_sky': (10.0, 125.0)
         }
 
         self.param_labels = {
@@ -94,7 +104,8 @@ class LyaP3DArinyoModel(Model):
             'q_1': 'q_1', 'nu_0': '\\nu_0', 'nu_1': '\\nu_1',
             'b_hcd': 'b_{HCD}', 'beta_hcd': '\\beta_{HCD}', 'L_hcd': 'L_{HCD}',
             'b_SiIII_1207': 'b_\\mathrm{Si~III(1207)}',
-            'beta_metal': '\\beta_M', 'sigma_v': '\\sigma_v'
+            'beta_metal': '\\beta_M', 'sigma_v': '\\sigma_v',
+            'a_sky': 'a_\\mathrm{sky}', 'sigma_sky': '\\sigma_\\mathrm{sky}'
         }
 
         self.prior = {
@@ -220,7 +231,15 @@ class LyaP3DArinyoModel(Model):
 
         delta2 = plin * self._k3
         tk = self._getTransfer3D(self._kk, self._mmuu, delta2, **kwargs)
-        return plin[:, :, None] * tk
+        result = plin[:, :, None] * tk
+
+        if any(kwargs['a_sky'] > 0):
+            result += getPowerSkyModel(
+                self._kk[None, :, :], self._mmuu[None, :, :],
+                kwargs['a_sky'][:, None, None],
+                kwargs['sigma_sky'][:, None, None])
+
+        return result
 
     def _getTransfer3D(self, k, mu, delta2, **kwargs):
         b_F = kwargs['b_F'][:, None, None]
@@ -274,4 +293,13 @@ class LyaP3DArinyoModel(Model):
             res.append(
                 plin * (4 * l + 1) * np.trapz(tk * pl, dx=self._dmu, axis=-1))
 
+        if any(kwargs['a_sky'] > 0):
+            psky = getPowerSkyModel(
+                self._kk[None, :, :], self._mmuu[None, :, :],
+                kwargs['a_sky'][:, None, None],
+                kwargs['sigma_sky'][:, None, None])
+
+            for l, pl in enumerate(self.pls):
+                res[l] += (4 * l + 1) * np.trapz(
+                    psky * pl, dx=self._dmu, axis=-1)
         return res
