@@ -14,9 +14,40 @@ def getPowerSkyModel(k, mu, a_sky, sigma_sky):
     return a_sky * np.exp(x * y)
 
 
-class LyaP3DArinyoModel(Model):
-    """docstring for LyaxCmbModel"""
+class MetalModel3D(Model):
+    def __init__(self, z):
+        super().__init__()
+        self.names = ['b_SiIII_1207', 'beta_metal', 'sigma_v']
+        self.initial = {
+            'b_SiIII_1207': np.array([-9.8e-3]), 'beta_metal': np.array([0.5]),
+            'sigma_v': np.array([5.0])
+        }
+        self.boundary = {
+            'b_SiIII_1207': (-0.5, 0), 'beta_metal': (0.0, 2.0),
+            'sigma_v': (0.0, 40.0)
+        }
+        self.param_labels = {
+            'b_SiIII_1207': 'b_\\mathrm{Si~III(1207)}',
+            'beta_metal': '\\beta_M', 'sigma_v': '\\sigma_v'
+        }
 
+        alpha_si = LYA_WAVELENGTH / 1206.52
+        z_si = (1.0 + z) * alpha_si - 1.0
+        self.dr_SiIII = (Planck18.comoving_distance(z_si)
+                         - Planck18.comoving_distance(z)).to("Mpc").value
+
+    def getTransfer3D(self, bbeta_lya, d_lya, kz, mu2, **kwargs):
+        b_SiIII1207 = kwargs['b_SiIII_1207'][:, None, None]
+        beta_metal = kwargs['beta_metal'][:, None, None]
+        bbeta_siIII = b_SiIII1207 * (1.0 + beta_metal * mu2)
+        dfog = 1.0 / (1.0 + kz**2 * (kwargs['sigma_v']**2)[:, None, None])
+
+        return (2.0 * bbeta_lya * bbeta_siIII * np.cos(kz * self.dr_SiIII)
+                    * np.sqrt(d_lya * dfog)
+                + bbeta_siIII * bbeta_siIII * dfog)
+
+
+class LyaP3DArinyoModel(Model):
     def __init__(
             self, z, cp_model_dir, emu="PKLIN_NN", use_camb=False,
             nmu=512, nl=4
@@ -29,11 +60,6 @@ class LyaP3DArinyoModel(Model):
         self._k, self._kk, self._mmuu = None, None, None
         self._k3, self.apo_halo = None, None
         self._kmax_halo = 1.5
-
-        alpha_si = LYA_WAVELENGTH / 1206.52
-        z_si = (1.0 + z) * alpha_si - 1.0
-        self.dr_SiIII = (Planck18.comoving_distance(z_si)
-                         - Planck18.comoving_distance(z)).to("Mpc").value
 
         self._use_camb = use_camb
         self.pls = []
@@ -57,11 +83,12 @@ class LyaP3DArinyoModel(Model):
         self._cosmo_fixed = False
         self._plin = None
 
+        self.metal_model = MetalModel3D(z)
+
         self._lya_nuis = [
             'b_F', 'beta_F', 'q_1', '10kv', 'nu_0', 'nu_1', 'k_p',
             'b_hcd', 'beta_hcd', 'L_hcd',
-            'b_SiIII_1207', 'beta_metal', 'sigma_v',
-            'a_sky', 'sigma_sky']
+            'a_sky', 'sigma_sky'] + self.metal_model.names
         self._broadcasted_params = self._cosmo_names + self._lya_nuis
 
         self.initial = {
@@ -76,10 +103,8 @@ class LyaP3DArinyoModel(Model):
             'k_p': np.array([16.802]),  # Mpc^-1
             'b_hcd': np.array([-0.05]), 'beta_hcd': np.array([0.7]),
             'L_hcd': np.array([14.8]),
-            'b_SiIII_1207': np.array([-9.8e-3]), 'beta_metal': np.array([0.5]),
-            'sigma_v': np.array([5.0]),  # 5.0
             'a_sky': np.array([0.0]), 'sigma_sky': np.array([45.0])
-        }
+        } | self.metal_model.initial
 
         self.boundary = {
             'omega_b': (0.01875, 0.02625),
@@ -91,10 +116,8 @@ class LyaP3DArinyoModel(Model):
             '10kv': (0.0, 1e2), 'nu_0': (0.0, 10.0), 'nu_1': (0.0, 10.0),
             'k_p': (0.0, 1e2),
             'b_hcd': (-0.2, 0.0), 'beta_hcd': (0.0, 2.0), 'L_hcd': (0.0, 40.0),
-            'b_SiIII_1207': (-0.5, 0), 'beta_metal': (0.0, 2.0),
-            'sigma_v': (0.0, 40.0),
             'a_sky': (0.0, 10.0), 'sigma_sky': (10.0, 125.0)
-        }
+        } | self.metal_model.boundary
 
         self.param_labels = {
             'omega_b': '\\Omega_b h^2', 'omega_cdm': '\\Omega_c h^2',
@@ -103,10 +126,8 @@ class LyaP3DArinyoModel(Model):
             '10kv': 'k_\\nu [10^{-1}~Mpc]',
             'q_1': 'q_1', 'nu_0': '\\nu_0', 'nu_1': '\\nu_1',
             'b_hcd': 'b_{HCD}', 'beta_hcd': '\\beta_{HCD}', 'L_hcd': 'L_{HCD}',
-            'b_SiIII_1207': 'b_\\mathrm{Si~III(1207)}',
-            'beta_metal': '\\beta_M', 'sigma_v': '\\sigma_v',
             'a_sky': 'a_\\mathrm{sky}', 'sigma_sky': '\\sigma_\\mathrm{sky}'
-        }
+        } | self.metal_model.param_labels
 
         self.prior = {
             'omega_b': 0.00014,
@@ -115,7 +136,7 @@ class LyaP3DArinyoModel(Model):
             'n_s': 0.0038,
             'ln10^{10}A_s': 0.014,
             'k_p': 4.8, 'q_1': 0.2, 'beta_hcd': 0.09
-        }
+        } | self.metal_model.prior
 
         if "mnu" in emu:
             self._cosmo_names.append("m_nu")
@@ -244,10 +265,8 @@ class LyaP3DArinyoModel(Model):
     def _getTransfer3D(self, k, mu, delta2, **kwargs):
         b_F = kwargs['b_F'][:, None, None]
         b_HCD = kwargs['b_hcd'][:, None, None]
-        b_SiIII1207 = kwargs['b_SiIII_1207'][:, None, None]
         beta_F = kwargs['beta_F'][:, None, None]
         beta_HCD = kwargs['beta_hcd'][:, None, None]
-        beta_metal = kwargs['beta_metal'][:, None, None]
         L_HCD = kwargs['L_hcd'][:, None, None]
         q_1 = kwargs['q_1'][:, None, None]
         k_nu = kwargs['10kv'][:, None, None]
@@ -257,7 +276,6 @@ class LyaP3DArinyoModel(Model):
 
         mu2 = mu**2
         bbeta_lya = b_F * (1.0 + beta_F * mu2)
-        bbeta_siIII = b_SiIII1207 * (1.0 + beta_metal * mu2)
         kz = k[None, :, :] * mu
         bbeta_hcd_kz = b_HCD * (1 + beta_HCD * mu2) * np.exp(-L_HCD * kz)
 
@@ -267,14 +285,11 @@ class LyaP3DArinyoModel(Model):
         lnD -= (k**2)[None, :, :] / (kwargs['k_p']**2)[:, None, None]
         np.exp(lnD, out=lnD)
 
-        dfog = 1.0 / (1.0 + kz**2 * (kwargs['sigma_v']**2)[:, None, None])
-
         result = bbeta_lya * bbeta_lya * lnD + self.apo_halo * (
             + 2.0 * bbeta_lya * bbeta_hcd_kz
             + bbeta_hcd_kz * bbeta_hcd_kz
-            + 2.0 * bbeta_lya * bbeta_siIII * np.cos(kz * self.dr_SiIII)
-                  * np.sqrt(lnD * dfog)
-            + bbeta_siIII * bbeta_siIII * dfog
+            + self.metal_model.getTransfer3D(
+                bbeta_lya, lnD, kz, mu2, **kwargs)
         )
 
         return result
