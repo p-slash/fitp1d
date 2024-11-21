@@ -23,7 +23,8 @@ nproc = 5
 nsamples = 5000
 
 model, base_cosmo = None, None
-k, p2fit, fisher = None, None, None
+k, p2fit, fisher, invcov = None, None, None, None
+fit_ftimesmodel = False
 mcmc_package = None
 free_params, fix_params, all_params = [], [], []
 timestamp = "000_000"
@@ -54,6 +55,10 @@ def getParser():
                         help="Use CAMB instead of cosmopower emu.")
     parser.add_argument("--mock-truth", action="store_true",
                         help="Replace data with exact p3d model.")
+    parser.add_argument("--fit-pfid", action="store_true",
+                        help="Fit the fiducial power spectrum.")
+    parser.add_argument("--fit-FtimesModel", action="store_true",
+                        help="Fit Fisher . model")
     parser.add_argument("--nwalkers", type=int, default=nwalkers,
                         help="Number of walkers.")
     parser.add_argument("--nproc", type=int, default=nproc,
@@ -92,7 +97,7 @@ def readP3dData(fname, nl):
 def setGlobals(args):
     global nwalkers, nsamples, progbar, nproc, vectorize, use_mp
     global model, base_cosmo, free_params, fix_params, all_params
-    global k, p2fit, fisher
+    global k, p2fit, fisher, invcov, fit_ftimesmodel
     global mcmc_package
 
     nwalkers = args.nwalkers
@@ -100,11 +105,12 @@ def setGlobals(args):
     nsamples = args.nsamples
     progbar = args.progbar
     vectorize = args.vectorize
+    fit_ftimesmodel = args.fit_FtimesModel
     use_mp = (nproc > 1) & (not vectorize)
     if vectorize and (nproc > 1):
         print("Vectorization disables multiprocessing.")
 
-    _, k, _, _, _, p2fit, _, _, fisher, _ = readP3dData(args.mydatadir, nl)
+    _, k, _, _, pfid, p2fit, _, _, fisher, _ = readP3dData(args.mydatadir, nl)
     model = LyaP3DArinyoModel(args.zeff, args.mycosmopowerdir,
                               use_camb=args.use_camb)
     model.cacheK(k)
@@ -112,6 +118,14 @@ def setGlobals(args):
     base_cosmo = model.broadcastKwargs(**model.initial.copy())
     if args.mock_truth:
         p2fit = np.hstack(model.getPls(**base_cosmo))[0]
+    elif args.fit_pfid:
+        p2fit = pfid.ravel()
+
+    if fit_ftimesmodel:
+        invcov = np.linalg.inv(fisher)
+        p2fit = fisher.dot(p2fit)
+    else:
+        invcov = fisher
 
     free_params = ['b_F', 'beta_F', 'q_1', 'k_p']
     if args.fix_cosmology:
@@ -143,15 +157,22 @@ def setGlobals(args):
         raise Exception("Unsupported MCMC package")
 
 
+def getModel(**cosmo):
+    r = np.hstack(model.getPls(**cosmo))[0]
+    if fit_ftimesmodel:
+        return fisher.dot(r)
+    return r
+
+
 def cost(args):
     new_cosmo = base_cosmo.copy()
     for i, x in enumerate(args):
         new_cosmo[all_params[i]] = np.array([x])
 
     # new_cosmo = model.broadcastKwargs(**new_cosmo)
-    y = np.hstack(model.getPls(**new_cosmo))[0] - p2fit
+    y = getModel(**new_cosmo) - p2fit
 
-    return y.dot(fisher.dot(y)) + model.getPrior(**new_cosmo)
+    return y.dot(invcov.dot(y)) + model.getPrior(**new_cosmo)
 
 
 def log_prob_vectorized(args):
@@ -171,8 +192,8 @@ def log_prob_vectorized(args):
     ndim = w.sum()
     result = np.empty(args.shape[0])
 
-    y = np.hstack(model.getPls(**new_cosmo)) - p2fit
-    y = -0.5 * (np.sum(y.dot(fisher) * y, axis=1)
+    y = getModel(**new_cosmo) - p2fit
+    y = -0.5 * (np.sum(y.dot(invcov) * y, axis=1)
                 + model.getPriorVector(ndim, **new_cosmo))
 
     result[w] = y
@@ -191,8 +212,8 @@ def log_prob_nonvectorized(args):
         if (new_cosmo[key][0] <= b1) | (b2 <= new_cosmo[key][0]):
             return -np.inf
 
-    y = np.hstack(model.getPls(**new_cosmo))[0] - p2fit
-    return -0.5 * (y.dot(fisher.dot(y)) + model.getPrior(**new_cosmo))
+    y = getModel(**new_cosmo) - p2fit
+    return -0.5 * (y.dot(invcov.dot(y)) + model.getPrior(**new_cosmo))
 
 
 def minimize():
@@ -212,6 +233,28 @@ def minimize():
         mini.fixed[key] = True
 
     print(mini.migrad())
+
+    # plot data vs best-fit
+    p2plot = p2fit.reshape(nl, k.size)
+
+    bestfit_cosmo = base_cosmo.copy()
+    for key, x in mini.values.to_dict().items():
+        bestfit_cosmo[key] = np.array([x])
+    p_bestfit = getModel(**bestfit_cosmo).reshape(nl, k.size)
+    err = np.sqrt(np.linalg.inv(invcov).diagonal()).reshape(nl, k.size)
+    for i in range(nl):
+        s = (i % 2) * 3e-3 + k
+        plt.errorbar(
+            s, k * p2plot[i], k * err[i], fmt='.', c=plt.cm.tab10(i),
+            label=r"$\ell=$"f"{i*2}", alpha=1)
+        plt.plot(s, k * p_bestfit[i], '-', c=plt.cm.tab10(i))
+    plt.legend(fontsize='x-large', ncol=2)
+    plt.xlabel(r"$k~$[Mpc$^{-1}$]")
+    plt.ylabel(r"$k P_\ell(k)~$[Mpc$^{2}$]")
+    plt.savefig(f"minimizer_data_vs_bestfit_{timestamp}.pdf",
+                dpi=200, bbox_inches='tight')
+    plt.close()
+
     nplots = len(free_params)
     nplots *= nplots - 1
     nplots //= 2
