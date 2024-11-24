@@ -26,7 +26,7 @@ model, base_cosmo = None, None
 k, p2fit, fisher, invcov = None, None, None, None
 fit_ftimesmodel = False
 mcmc_package = None
-free_params, fix_params, all_params = [], [], []
+free_params, fix_params, all_params = ['b_F', 'beta_F', 'q_1', 'k_p'], [], []
 timestamp = "000_000"
 
 
@@ -59,6 +59,7 @@ def getParser():
                         help="Fit the fiducial power spectrum.")
     parser.add_argument("--fit-FtimesModel", action="store_true",
                         help="Fit Fisher . model")
+    parser.add_argument("--marg-p1d", action="store_true")
     parser.add_argument("--nwalkers", type=int, default=nwalkers,
                         help="Number of walkers.")
     parser.add_argument("--nproc", type=int, default=nproc,
@@ -115,9 +116,14 @@ def setGlobals(args):
                               use_camb=args.use_camb)
     model.cacheK(k)
     p2fit = p2fit.ravel()
+
+    if args.marg_p1d:
+        model.margLyaP1D()
+        free_params.append('a_p1d')
+
     base_cosmo = model.broadcastKwargs(**model.initial.copy())
     if args.mock_truth:
-        p2fit = np.hstack(model.getPls(**base_cosmo))[0]
+        p2fit = model.getPls(**base_cosmo)[0].ravel()
     elif args.fit_pfid:
         p2fit = pfid.ravel()
 
@@ -127,7 +133,6 @@ def setGlobals(args):
     else:
         invcov = fisher
 
-    free_params = ['b_F', 'beta_F', 'q_1', 'k_p']
     if args.fix_cosmology:
         model.fixCosmology(**base_cosmo)
     else:
@@ -158,7 +163,7 @@ def setGlobals(args):
 
 
 def getModel(**cosmo):
-    r = np.hstack(model.getPls(**cosmo))[0]
+    r = model.getPls(**cosmo)[0].ravel()
     if fit_ftimesmodel:
         return fisher.dot(r)
     return r
