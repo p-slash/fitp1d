@@ -1,7 +1,7 @@
 import numpy as np
 from astropy.cosmology import Planck18
 
-from fitp1d.model import Model, LYA_WAVELENGTH
+from fitp1d.model import Model, LyaP1DSimpleModel, LYA_WAVELENGTH
 from fitp1d.xcmb import MyPlinInterp
 
 cosmo_package = None
@@ -142,6 +142,25 @@ class LyaP3DArinyoModel(Model):
             self._cosmo_names.append("m_nu")
             self.initial['m_nu'] = 0.06
             self.param_labels['m_nu'] = 'm_{\nu}'
+
+        self._templates = {}
+
+    def margLyaP1D(self):
+        p1d_m = LyaP1DSimpleModel()
+        p1d_m.z = self.z
+        p1d_k = p1d_m.evaluate(self._kk * self._mmuu, **p1d_m.initial)
+
+        res = []
+        for l, pl in enumerate(self.pls):
+            res.append(
+                (4 * l + 1) * np.trapz(p1d_k * pl, dx=self._dmu, axis=-1))
+
+        self.names.append("a_p1d")
+        self._lya_nuis.append("a_p1d")
+        self.initial['a_p1d'] = np.array([0.0])
+        self.boundary['a_p1d'] = (-3.0, 3.0)
+        self.param_labels['a_p1d'] = 'a_{p1d}'
+        self._templates['a_p1d'] = np.array(res)
 
     def _apodize(self, k):
         return np.cos((2.0 * k / self._kmax_halo - 1.0) * np.pi / 2.0)**2
@@ -300,13 +319,14 @@ class LyaP3DArinyoModel(Model):
         else:
             plin_interp = self.getPlinInterp(**kwargs)
             plin = plin_interp(self._k)
+        ncosmo = plin.shape[0]
         delta2 = plin * self._k3
         tk = self._getTransfer3D(self._kk, self._mmuu, delta2, **kwargs)
 
-        res = []
+        res = np.empty((ncosmo, len(self.pls), self._k.size))
         for l, pl in enumerate(self.pls):
-            res.append(
-                plin * (4 * l + 1) * np.trapz(tk * pl, dx=self._dmu, axis=-1))
+            res[:, l] = plin * (4 * l + 1) * np.trapz(
+                tk * pl, dx=self._dmu, axis=-1)
 
         if any(kwargs['a_sky'] > 0):
             psky = getPowerSkyModel(
@@ -315,6 +335,10 @@ class LyaP3DArinyoModel(Model):
                 kwargs['sigma_sky'][:, None, None])
 
             for l, pl in enumerate(self.pls):
-                res[l] += (4 * l + 1) * np.trapz(
+                res[:, l] += (4 * l + 1) * np.trapz(
                     psky * pl, dx=self._dmu, axis=-1)
+
+        for key, item in self._templates.items():
+            res += kwargs[key] * item
+
         return res
