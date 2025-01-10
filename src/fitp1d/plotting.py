@@ -30,7 +30,7 @@ def plotEllipseMinimizer(
         fc=color, ec=color, lw=2, **kwargs
     )
 
-    ax.plot(mean_x, mean_y, 'k+')
+    ax.plot(mean_x, mean_y, '+', c=color)
     if key1 in truth:
         ax.axvline(truth[key1], ls=':', c='r')
     if key2 in truth:
