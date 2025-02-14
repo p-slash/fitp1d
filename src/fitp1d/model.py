@@ -226,7 +226,7 @@ class IonModel(Model):
                 if wave < w1 or LYA_WAVELENGTH < w1:
                     continue
 
-                key = f'Lya-{ion.replace("-", r"$~$")} ({wave:.0f})'
+                key = f'Lya - {ion.replace("-", r"$~$")} ({wave:.0f})'
                 vseps[key] = np.abs(
                     LIGHT_SPEED * np.log(LYA_WAVELENGTH / wave))
 
