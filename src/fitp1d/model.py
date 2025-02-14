@@ -226,7 +226,7 @@ class IonModel(Model):
                 if wave < w1 or LYA_WAVELENGTH < w1:
                     continue
 
-                key = f'Lya-{ion} ({wave:.0f})'
+                key = f'Lya-{ion.replace("-", r"$~$")} ({wave:.0f})'
                 vseps[key] = np.abs(
                     LIGHT_SPEED * np.log(LYA_WAVELENGTH / wave))
 
@@ -235,7 +235,7 @@ class IonModel(Model):
                 if p1[0] < w1 or p2[0] < w1:
                     continue
 
-                key = f'{ion} ({p1[0]:.0f}-{p2[0]:.0f})'
+                key = f'{ion.replace("-", r"$~$")} ({p1[0]:.0f}-{p2[0]:.0f})'
                 vseps[key] = np.abs(LIGHT_SPEED * np.log(p2[0] / p1[0]))
 
         ions = list(IonModel.Transitions.keys())
@@ -247,7 +247,8 @@ class IonModel(Model):
                 if p1[0] < w1 or p2[0] < w1:
                     continue
 
-                key = f"{i1} ({p1[0]:.0f}) - {i2} ({p2[0]:.0f})"
+                key = (f"{i1.replace('-', r'$~$')} ({p1[0]:.0f}) "
+                       f"- {i2.replace('-', r'$~$')} ({p2[0]:.0f})")
                 vseps[key] = np.abs(LIGHT_SPEED * np.log(p2[0] / p1[0]))
 
         return vseps
