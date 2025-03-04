@@ -27,12 +27,17 @@ class P1DLikelihood():
 
     def __init__(
             self, fname_power, use_simple_lya_model=False,
-            fname_cov=None, cov=None, forecast=False
+            model_ions=["Si-II", "Si-III", "O-I"],
+            fname_cov=None, cov=None, forecast=False,
+            fit_scaling_systematics=False
     ):
         self.readData(fname_power, fname_cov, cov)
 
-        self.p1dmodel = fitp1d.model.CombinedModel(
-            self.psdata.data_table.dtype.names)
+        if fit_scaling_systematics:
+            syst = self.psdata.data_table.dtype.names
+        else:
+            syst = []
+        self.p1dmodel = fitp1d.model.CombinedModel(syst, model_ions)
         if use_simple_lya_model:
             self.p1dmodel.useSimpleLyaModel()
 
