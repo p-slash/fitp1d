@@ -60,8 +60,7 @@ class DetailedData():
             if key.startswith("E_") and key != "E_SYST"
         }
 
-        res = nplr.append_fields(
-            p1d_fits.p1d_data, dsyst_keys, dsyst, usemask=False)
+        res = nplr.stack_arrays((p1d_fits.p1d_data, dsyst), usemask=False)
         res = nplr.rename_fields(res, DetailedData._map_from_fts | syst_map)
         p = cls(res, p1d_fits.fname)
         p.setCovariance(p1d_fits.cov)
