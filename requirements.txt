@@ -9,6 +9,7 @@ emcee~=3.1.0
 getdist~=1.4.1
 matplotlib~=3.7.2
 tqdm~=4.64.0
+fitsio
 camb
 mpi4py
 h5py
