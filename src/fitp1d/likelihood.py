@@ -3,23 +3,28 @@ import emcee
 import iminuit
 from getdist import MCSamples
 
-from fitp1d.data import DetailedData
+from fitp1d.data import P1dFitsFile, DetailedData
 import fitp1d.model
 
 
 class P1DLikelihood():
     def readData(self, fname_power, fname_cov=None, cov=None):
-        self.psdata = DetailedData(fname_power)
-        self.ndata = self.psdata.size
+        if fname_power.endswith(".txt") or fname_power.endswith(".dat"):
+            self.psdata = DetailedData.fromFile(fname_power)
+            self.ndata = self.psdata.size
 
-        if fname_cov:
-            self.psdata.readCovariance(fname_cov, skiprows=0)
-        elif cov is not None:
-            self.psdata.setCovariance(cov)
+            if fname_cov:
+                self.psdata.readCovariance(fname_cov, skiprows=0)
+            elif cov is not None:
+                self.psdata.setCovariance(cov)
+
+        if fname_power.endswith(".fits") or fname_power.endswith(".fits.gz"):
+            self.psdata = DetailedData.fromP1dFitsFile(fname_power)
+            self.ndata = self.psdata.size
 
     def __init__(
             self, fname_power, use_simple_lya_model=False,
-            fname_cov=None, cov=None
+            fname_cov=None, cov=None, forecast=False
     ):
         self.readData(fname_power, fname_cov, cov)
 
