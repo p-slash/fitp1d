@@ -63,7 +63,9 @@ class DetailedData():
         res = nplr.append_fields(
             p1d_fits.p1d_data, dsyst_keys, dsyst, usemask=False)
         res = nplr.rename_fields(res, DetailedData._map_from_fts | syst_map)
-        return cls(res, p1d_fits.fname)
+        p = cls(res, p1d_fits.fname)
+        p.setCovariance(p1d_fits.cov)
+        return p
 
     def fromFile(cls, fname, fmt=None):
         if fmt:
