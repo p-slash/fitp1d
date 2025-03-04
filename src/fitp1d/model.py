@@ -73,9 +73,13 @@ class IonModel(Model):
         "C-IV": [(1548.202, 0.190), (1550.774, 0.0952)]
     }
 
+    # PivotF = {
+    #     "Si-II": 1.22, "Si-III": 1.67, "Si-IV": 0.513,
+    #     "O-I": 0.0520, "C-II": 0.129, "C-IV": 0.190
+    # }
     PivotF = {
-        "Si-II": 1.22, "Si-III": 1.67, "Si-IV": 0.513,
-        "O-I": 0.0520, "C-II": 0.129, "C-IV": 0.190
+        key: max(value, key=lambda x: x[1])
+        for key, value in Transitions.items()
     }
     VMax = LIGHT_SPEED * np.log(1180. / 1050.) / 2.
 
@@ -84,10 +88,12 @@ class IonModel(Model):
         for ion in self._ions:
             transitions = self._transitions[ion]
             self._splines['const_a2'][f"a_{ion}"] = 0
-            fpivot = self._pivots[ion]
+            lpivot, fpivot = self._pivots[ion]
+            fpivot *= lpivot
 
             for wave, fn in transitions:
-                self._splines['const_a2'][f"a_{ion}"] += (fn / fpivot)**2
+                r = fn * wave / fpivot
+                self._splines['const_a2'][f"a_{ion}"] += r**2
 
     def _setLinearATerms(self):
         self._splines['linear_a'] = {}
@@ -95,7 +101,8 @@ class IonModel(Model):
         for ion in self._ions:
             transitions = self._transitions[ion]
             result = np.zeros(self._karr.size)
-            fpivot = self._pivots[ion]
+            lpivot, fpivot = self._pivots[ion]
+            fpivot *= lpivot
 
             for wave, fn in transitions:
                 vn = np.abs(LIGHT_SPEED * np.log(LYA_WAVELENGTH / wave))
@@ -103,7 +110,7 @@ class IonModel(Model):
                 if vn > self._vmax:
                     continue
 
-                r = fn / fpivot
+                r = fn * wave / fpivot
                 result += 2 * r * np.cos(self._karr * vn)
 
                 print(f"_setLinearATerms({ion}, {wave}): {vn:.0f}")
@@ -116,7 +123,8 @@ class IonModel(Model):
         for ion in self._ions:
             transitions = self._transitions[ion]
             result = np.zeros(self._karr.size)
-            fpivot = self._pivots[ion]
+            lpivot, fpivot = self._pivots[ion]
+            fpivot *= lpivot
 
             for p1, p2 in itertools.combinations(transitions, 2):
                 vmn = np.abs(LIGHT_SPEED * np.log(p2[0] / p1[0]))
@@ -124,7 +132,7 @@ class IonModel(Model):
                 if vmn > self._vmax:
                     continue
 
-                r = (p1[1] / fpivot) * (p2[1] / fpivot)
+                r = (p1[0] * p1[1] / fpivot) * (p2[0] * p2[1] / fpivot)
                 result += 2 * r * np.cos(self._karr * vmn)
 
                 print(f"_setOneionA2Terms({ion}, {p1[0]}, {p2[0]}): {vmn:.0f}")
@@ -140,8 +148,10 @@ class IonModel(Model):
             all_zero = True
             t1 = self._transitions[i1]
             t2 = self._transitions[i2]
-            fp1 = self._pivots[i1]
-            fp2 = self._pivots[i2]
+            lp1, fp1 = self._pivots[i1]
+            lp2, fp2 = self._pivots[i2]
+            fp1 *= lp1
+            fp2 *= lp2
 
             for (p1, p2) in itertools.product(t1, t2):
                 vmn = np.abs(LIGHT_SPEED * np.log(p2[0] / p1[0]))
@@ -149,7 +159,7 @@ class IonModel(Model):
                 if vmn > self._vmax:
                     continue
 
-                r = (p1[1] / fp1) * (p2[1] / fp2)
+                r = (p1[0] * p1[1] / fp1) * (p2[0] * p2[1] / fp2)
                 result += 2 * r * np.cos(self._karr * vmn)
                 all_zero = False
                 print(f"_setTwoionA2Terms({i1},"
@@ -181,7 +191,7 @@ class IonModel(Model):
                 for wave, fp in transitions:
                     key = f"{ion} ({wave:.0f})"
                     self._transitions[key] = [(wave, fp)]
-                    self._pivots[key] = fp
+                    self._pivots[key] = IonModel.PivotF[key]
                     self._ions.append(key)
                     self.param_labels[f"a_{key}"] = f"a-{key}"
         else:
@@ -207,7 +217,7 @@ class IonModel(Model):
             self._vmax = IonModel.VMax
 
         self.initial = {k: 1e-2 for k in self.names}
-        self.boundary = {k: (-1, 1) for k in self.names}
+        self.boundary = {k: (-2, 2) for k in self.names}
 
         self._splines = {}
         self._integrated_model = {}
