@@ -35,7 +35,7 @@ class DetailedData():
         "Z": "z", "K1": "k1", "K2": "k2", "K": "kc", "PINPUT": "Pfid",
         "PLYA": "p_final", "E_PK": "e_total", "PRAW": "p_raw",
         "PNOISE": "p_noise", "PFID": "p_fid_qmle",
-        "E_STAT": "e_stat", "PSMOOTH": "p_smooth", "E_SYST": "e_syst"
+        "E_STAT": "e_stat", "PSMOOTH": "p_smooth", "E_SYST": "e_syst_total"
     }
 
     def _check_keys(self):
@@ -53,14 +53,16 @@ class DetailedData():
         if isinstance(p1d_fits, str):
             p1d_fits = P1dFitsFile(p1d_fits)
 
-        dsyst = nplr.drop_fields(p1d_fits.esyst, ["Z", "K"], usemask=False)
+        dsyst = nplr.drop_fields(
+            p1d_fits.esyst, ["Z", "K", "E_SYST"], usemask=False)
         dsyst_keys = dsyst.dtype.names
         syst_map = {
             key: f"{key.lower()}_syst" for key in dsyst_keys
-            if key.startswith("E_") and key != "E_SYST"
+            if key.startswith("E_")
         }
 
-        res = nplr.stack_arrays((p1d_fits.p1d_data, dsyst), usemask=False)
+        res = nplr.merge_arrays(
+            (p1d_fits.p1d_data, dsyst), flatten=True, usemask=False)
         res = nplr.rename_fields(res, DetailedData._map_from_fts | syst_map)
         p = cls(res, p1d_fits.fname)
         p.setCovariance(p1d_fits.cov)
