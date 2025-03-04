@@ -124,25 +124,26 @@ def plotCornerSamples(
         plt.show()
 
 
-def plotFitNData(likeli, ofname=None, show=True):
+def plotFitNData(likeli, plot_ratio=True):
     data = likeli._data
     k = data['kc']
-    plt.errorbar(
-        k, data['p_final'] * k / np.pi, data['e_total'] * k / np.pi,
-        fmt='o', capsize=2)
     fit = likeli._mini.values.to_dict()
     model = likeli.p1dmodel.getIntegratedModel(**fit)
 
-    plt.plot(k, model * k / np.pi, 'k-')
+    if not plot_ratio:
+        plt.errorbar(
+            k, data['p_final'] * k / np.pi, data['e_total'] * k / np.pi,
+            fmt='o', capsize=2)
+
+        plt.plot(k, model * k / np.pi, 'k-')
+        plt.yscale("log")
+    else:
+        plt.errorbar(
+            k, data['p_final'] / model, data['e_total'] / model,
+            fmt='o', capsize=2)
+
     plt.xscale("log")
-    plt.yscale("log")
-    plt.grid(True, "major")
-    plt.grid(True, "minor", linestyle=':', linewidth=1)
-    plt.ylabel(r"$kP/\pi$", fontsize=16)
-    plt.xlabel(r"$k$ [s km$^{-1}$]", fontsize=16)
+    plt.ylabel(r"$kP/\pi$")
+    plt.xlabel(r"$k$ [s km$^{-1}$]")
 
-    if ofname:
-        plt.savefig(ofname, dpi=150, bbox_inches='tight')
-
-    if show:
-        plt.show()
+    return plt.gca()
