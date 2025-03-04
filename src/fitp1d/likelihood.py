@@ -3,7 +3,7 @@ import emcee
 import iminuit
 from getdist import MCSamples
 
-from fitp1d.data import P1dFitsFile, DetailedData
+from fitp1d.data import DetailedData
 import fitp1d.model
 
 
@@ -21,6 +21,9 @@ class P1DLikelihood():
         if fname_power.endswith(".fits") or fname_power.endswith(".fits.gz"):
             self.psdata = DetailedData.fromP1dFitsFile(fname_power)
             self.ndata = self.psdata.size
+
+        else:
+            raise Exception("File type not recognized")
 
     def __init__(
             self, fname_power, use_simple_lya_model=False,
@@ -89,8 +92,11 @@ class P1DLikelihood():
 
         _ = sampler.run_mcmc(p0, nsamples, progress=True)
 
-        tau = sampler.get_autocorr_time()
-        print("Auto correlations:", tau)
+        try:
+            tau = sampler.get_autocorr_time()
+            print("Auto correlations:", tau)
+        except Exception:
+            pass
 
         samples = MCSamples(
             samples=sampler.get_chain(discard=1000, thin=15, flat=True),
@@ -102,7 +108,7 @@ class P1DLikelihood():
 
         return samples
 
-    def fitDataBin(self, z, kmin=5e-4, kmax=None, print_info=False):
+    def fitDataBin(self, z, kmin=1e-3, kmax=None, print_info=False):
         if kmax is None:
             rkms = (
                 fitp1d.model.LIGHT_SPEED * 0.8
