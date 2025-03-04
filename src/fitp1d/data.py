@@ -56,7 +56,7 @@ class DetailedData():
         dsyst = nplr.drop_fields(p1d_fits.esyst, ["Z", "K"], usemask=False)
         dsyst_keys = dsyst.dtype.names
         syst_map = {
-            f"{key.lower()}_syst" for key in dsyst_keys
+            key: f"{key.lower()}_syst" for key in dsyst_keys
             if key.startswith("E_") and key != "E_SYST"
         }
 
