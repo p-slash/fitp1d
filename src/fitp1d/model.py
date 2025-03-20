@@ -1,3 +1,4 @@
+import functools
 import itertools
 
 from astropy.cosmology import Planck18
@@ -5,8 +6,11 @@ import camb
 import numpy as np
 from scipy.interpolate import CubicSpline
 
+import fitp1d.basic_cosmo as mycosmo
+
+
+LIGHT_SPEED = mycosmo.LIGHT_SPEED
 LYA_WAVELENGTH = 1215.67
-LIGHT_SPEED = 299792.458  # km / s
 BOLTZMANN_K = 8.617333262e-5  # eV / K
 M_PROTON = 0.938272088e9  # eV
 
@@ -50,6 +54,42 @@ def evaluatePD13Lorentz(k, z, A, n, alpha, B, beta, k1):
 
 def getHubbleZ(z, H0, Ode0):
     return H0 * np.sqrt(Ode0 + (1 - Ode0) * (1 + z)**3)
+
+
+def simpleLinearPower(lnk, Delta2_p, n_p, alpha_p, lnkp):
+    """Returns ln(P_L)
+    """
+    q = lnk - lnkp
+    m = n_p + 0.5 * alpha_p * q
+    return np.log(Delta2_p * 2.0 * np.pi**2) + m * q - 3 * lnkp
+
+
+def getCambLinearPowerInterp(zlist, ln10As, ns, Om0, Ob0, H0, mnu=0):
+    h = H0 / 100
+    omch2 = (Om0 - Ob0) * h**2
+    ombh2 = Ob0 * h**2
+
+    camb_params = camb.set_params(
+        redshifts=sorted(zlist, reverse=True),
+        WantCls=False, WantScalars=False,
+        WantTensors=False, WantVectors=False,
+        WantDerivedParameters=False,
+        WantTransfer=True,
+        omch2=omch2,
+        ombh2=ombh2,
+        omk=0.,
+        H0=H0,
+        ns=ns,
+        As=np.exp(ln10As) * 1e-10,
+        mnu=mnu
+    )
+    camb_results = camb.get_results(camb_params)
+
+    # Note this interpolator in Mpc units without h
+    camb_interp = camb_results.get_matter_power_interpolator(
+        nonlinear=False, hubble_units=False, k_hunit=False)
+
+    return camb_interp.P
 
 
 class Model():
@@ -435,20 +475,22 @@ class PolynomialModel(Model):
             self.boundary[key] = (-10., 10.)
 
         self._x = None
+        self._amp = 1
 
-    def cache(self, x):
+    def cache(self, x, a=1):
         self._x = x.copy()
+        self._amp = a
+        if a != 1:
+            for key in self.names:
+                self.param_labels[key] = f"{key}/{a:.2e}"
 
     def evaluate(self, x, **kwargs):
         if self.order < 0:
             return 0
 
-        marg = np.zeros_like(x)
+        pmc = [kwargs[f'PMC{n}'] for n in reversed(range(self.order))]
 
-        for n in range(self.order):
-            marg += kwargs[f'PMC{n}'] * x**n
-
-        return marg
+        return self._amp * np.polyval(pmc, x)
 
     def getCachedModel(self, **kwargs):
         return self.evaluate(self._x, **kwargs)
@@ -585,50 +627,64 @@ class LyaP1DArinyoModel(Model):
     CAMB_KMAX = 2e2
     CAMB_KMIN = 1e-3
 
-    def __init__(self):
-        super().__init__()
+    PIVOT_K = 0.7  # Mpc^-1
+    PIVOT_Z = 3.0
 
-        self._cosmo_names = ['ln10As', 'ns', 'mnu', 'Ode0', 'H0']
-        self.names = self._cosmo_names + [
-            'blya', 'bbeta', 'q1', '10kv', 'av', 'bv', 'kp']
+    def __init__(self, use_camb):
+        super().__init__()
+        self._use_camb = use_camb
+        self.names = ['blya', 'beta', 'q1', '100kv', 'av', 'bv', 'kp']
 
         self.initial = {
-            'blya': -0.2,
-            'bbeta': -0.334,
-            'q1': 0.65,
-            '10kv': 8.,
-            'av': 0.5,
-            'bv': 1.55,
-            'kp': 13.0,
-            'ln10As': 3.044,
-            'ns': Planck18.meta['n'],
-            'mnu': 8.,
-            'Ode0': Planck18.Ode0,
-            'H0': Planck18.H0.value
+            'blya': -0.15, 'beta': 1.7, 'q1': 0.7, '100kv': 40.,
+            'av': 0.4, 'bv': 1.65, 'kp': 16.8,
+            'Ode0': Planck18.Ode0, 'H0': Planck18.H0.value
         }
+        self.prior['beta'] = 0.3
+        # Loose Accel2 priors
+        self.prior['q1'] = 0.4
+        self.prior['100kv'] = 40.0
+        self.prior['av'] = 1.0
+        self.prior['bv'] = 0.2
 
         self.param_labels = {
-            "blya": r"b_\mathrm{Lya}", "bbeta": r"b\beta_\mathrm{Lya}",
-            "q1": r"$q_1$", "10kv": r"$k_\nu$ [$10^{-1}~$Mpc]", "av": r"$a_\nu$",
-            "bv": r"$b_\nu$", "kp": r"$k_p$ [Mpc]", "ln10As": r"$\ln(10^{10} A_s)$",
-            "ns": r"$n_s$", "mnu": r"$\sum m_\nu$ [$10^{-2}~$eV]",
-            "Ode0": r"$\Omega_\Lambda$", "H0": r"$H_0$ [km s$^{-1}$ Mpc$^{-1}$]"
+            "blya": r"b_\mathrm{Lya}", "beta": r"\beta_\mathrm{Lya}",
+            "q1": r"q_1", "100kv": r"100 k_\nu [Mpc^{-1}]", "av": r"a_\nu",
+            "bv": r"b_\nu", "kp": r"k_p [Mpc^{-1}]",
+            "Ode0": r"\Omega_\Lambda", "H0": r"H_0 [km~s^{-1}~Mpc^{-1}]"
         }
 
         self.boundary = {
-            'blya': (-5, 0),
-            'bbeta': (-5, 0),
-            'q1': (0.1, 5.),
-            '10kv': (0., 50.),
-            'av': (0.1, 5.),
-            'bv': (0.1, 5.),
-            'kp': (1., 50.),
-            'ln10As': (2., 4.),
-            'ns': (0.94, 1.),
-            'mnu': (0., 50.),
-            'Ode0': (0.5, 0.9),
-            'H0': (50., 100.)
+            'blya': (-5, 0), 'beta': (0, 5), 'q1': (0.01, 5.),
+            '100kv': (0.1, 200.), 'av': (0.1, 5.), 'bv': (0.1, 5.),
+            'kp': (1., 100.),
+            'Ode0': (0.5, 0.9), 'H0': (50., 100.)
         }
+
+        if use_camb:
+            self._cosmo_names = ['ln10As', 'ns', 'mnu', 'Ode0', 'H0']
+            self.initial |= {
+                'ln10As': 3.044, 'ns': Planck18.meta['n'],
+                'mnu': 8.
+            }
+            self.param_labels |= {
+                "ln10As": r"\ln(10^{10} A_s)",
+                "ns": r"$n_s$", "mnu": r"$\sum m_\nu$ [$10^{-2}~$eV]"
+            }
+            self.boundary |= {
+                'ln10As': (2., 4.), 'ns': (0.94, 1.), 'mnu': (0., 50.),
+            }
+        else:
+            # 'Delta2_p' cannot be constrained
+            self._Delta2_p = 0.35862820928538586
+            self._cosmo_names = ['n_p', 'alpha_p', 'Ode0', 'H0']
+            # 'Delta2_p': 0.35
+            self.initial |= {'n_p': -2.307, 'alpha_p': -0.21857}
+            # 'Delta2_p': r"$\Delta^2_p$"
+            self.param_labels |= {'n_p': r"n_p", 'alpha_p': r"\alpha_p"}
+            self.boundary |= {'n_p': (-3.0, -1.5), 'alpha_p': (-0.3, -0.1)}
+
+        self.names = self._cosmo_names + self.names
 
         self._kperp, self._dlnkperp = np.linspace(
             np.log(LyaP1DArinyoModel.CAMB_KMIN),
@@ -657,11 +713,29 @@ class LyaP1DArinyoModel(Model):
         self.kfine = np.linspace(k1, k2, _NSUB_K_, endpoint=False).T.ravel()
         self.ndata = k1.size
         self.z = z
+        self.initial['blya'] = -0.1195977 * ((1 + z) / 3.4)**3.37681
+        # self.initial['bbeta'] = 1.6633 * self.initial['blya']
 
         # shape = (self._kperp.shape[0], k1.size, _NSUB_K_)
 
     def newCambInterp(self, **kwargs):
         H0, Ode0 = kwargs['H0'], kwargs['Ode0']
+        if not self._use_camb:
+            zp = LyaP1DArinyoModel.PIVOT_Z
+            lnkstar = np.log(
+                LyaP1DArinyoModel.PIVOT_K
+                # * getHubbleZ(zp, H0, Ode0) / (1 + zp)
+                # / (getHubbleZ(self.z, H0, Ode0) / (1 + self.z))
+            )
+
+            grow = mycosmo.getLinearGrowth(zp, self.z, 1.0 - Ode0)
+
+            self._cosmo_interp = functools.partial(
+                simpleLinearPower,
+                Delta2_p=grow**2 * self._Delta2_p, n_p=kwargs['n_p'],
+                alpha_p=kwargs['alpha_p'], lnkp=lnkstar)
+            return
+
         h = H0 / 100.
 
         camb_params = camb.set_params(
@@ -681,8 +755,8 @@ class LyaP1DArinyoModel(Model):
         camb_results = camb.get_results(camb_params)
 
         khs, _, pk = camb_results.get_linear_matter_power_spectrum(
-            nonlinear=False, hubble_units=False)
-        khs *= h
+            nonlinear=False, hubble_units=False, k_hunit=False)
+        # khs *= h
         pk = pk[0]
         np.log(pk, out=pk)
         np.log(khs, out=khs)
@@ -731,13 +805,13 @@ class LyaP1DArinyoModel(Model):
             self.newKandP(k1d_skm, **kwargs)
 
         t1 = (
-            (self._k3d_Mpc / kwargs['10kv'])**kwargs['av']
+            (self._k3d_Mpc / kwargs['100kv'])**kwargs['av']
             * self._mu**kwargs['bv']
-        ) * 10**-kwargs['av']
+        ) * 100.0**-kwargs['av']
         t2 = (self._k3d_Mpc / kwargs['kp'])**2
         p3d = np.exp(kwargs['q1'] * (1 - t1) - t2)
         p3d *= self._p3dlin
-        p3d *= (kwargs['blya'] + kwargs['bbeta'] * self._mu**2)**2
+        p3d *= kwargs['blya']**2 * (1.0 + kwargs['beta'] * self._mu**2)**2
 
         return p3d
 
@@ -749,7 +823,7 @@ class LyaP1DArinyoModel(Model):
     def getCachedModel(self, **kwargs):
         p3d_flux = self.evaluateP3D(**kwargs) * self._kperp2pi
         p1d_kms = self.Mpc2kms * np.trapz(p3d_flux, dx=self._dlnkperp, axis=0)
-        return p1d_kms.reshape(self.ndata, _NSUB_K_)
+        return p1d_kms  # .reshape(self.ndata, _NSUB_K_)
 
 
 class CombinedModel(Model):
@@ -768,12 +842,13 @@ class CombinedModel(Model):
             self.prior |= M.prior
 
     def __init__(
-            self, syst_dtype_names, model_ions=["Si-II", "Si-III", "O-I"],
-            per_transition_bias=False, xi1d=False
+            self, syst_dtype_names, use_camb=False,
+            model_ions=["Si-II", "Si-III", "O-I"], per_transition_bias=False,
+            xi1d=False
     ):
         super().__init__()
         self._models = {
-            'lya': LyaP1DArinyoModel(),
+            'lya': LyaP1DArinyoModel(use_camb),
             'ion': IonModel(
                 model_ions=model_ions, per_transition_bias=per_transition_bias
             ),
@@ -809,8 +884,8 @@ class CombinedModel(Model):
         self._models['lya'] = LyaP1DSimpleModel()
         self._setAttr()
 
-    def useArinyoLyaModel(self):
-        self._models['lya'] = LyaP1DArinyoModel()
+    def useArinyoLyaModel(self, use_camb):
+        self._models['lya'] = LyaP1DArinyoModel(use_camb)
         self._setAttr()
 
     def setFiducialCorrectionModel(self, *args):
@@ -827,6 +902,10 @@ class CombinedModel(Model):
         self._models['poly'] = PolynomialModel(n)
         varr = (np.arange(self.ndata) * self._dv) / 5000.
         self._models['poly'].cache(varr)
+        self._setAttr()
+
+    def addPolynomialP1dTerms(self, n):
+        self._models['poly'] = PolynomialModel(n)
         self._setAttr()
 
     def addContinuumDistortionModel(self, cd_model="DC2"):
@@ -854,6 +933,9 @@ class CombinedModel(Model):
 
         # rkms = LIGHT_SPEED * 0.8 / (1 + z) / LYA_WAVELENGTH
         # self._models['reso'].cache(kfine, rkms)
+        if 'poly' in self._models:
+            a = evaluatePD13Lorentz(PD13_PIVOT_K, z, *PDW_FIT_PARAMETERS)
+            self._models['poly'].cache(data['kc'] / PD13_PIVOT_K, a)
 
         if 'fid' in self._models:
             self._models['fid'].cache(kedges, z)
@@ -871,6 +953,8 @@ class CombinedModel(Model):
         for name in self._syst_models:
             m = self._models[name]
             result -= m.getCachedModel(**kwargs)
+        if 'poly' in self._models:
+            result += self._models['poly'].getCachedModel(**kwargs)
 
         return result
 

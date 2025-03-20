@@ -26,10 +26,11 @@ class P1DLikelihood():
             raise Exception("File type not recognized")
 
     def __init__(
-            self, fname_power, use_simple_lya_model=False,
+            self, fname_power, use_camb=False, use_simple_lya_model=False,
             model_ions=["Si-II", "Si-III", "O-I"],
             fname_cov=None, cov=None, forecast=False,
-            fit_scaling_systematics=False
+            fit_scaling_systematics=False,
+            fit_poly_order=-1
     ):
         self.readData(fname_power, fname_cov, cov)
 
@@ -37,9 +38,12 @@ class P1DLikelihood():
             syst = self.psdata.data_table.dtype.names
         else:
             syst = []
-        self.p1dmodel = fitp1d.model.CombinedModel(syst, model_ions)
+        self.p1dmodel = fitp1d.model.CombinedModel(syst, use_camb, model_ions)
         if use_simple_lya_model:
             self.p1dmodel.useSimpleLyaModel()
+
+        if fit_poly_order > 0:
+            self.p1dmodel.addPolynomialP1dTerms(fit_poly_order)
 
         self.names = self.p1dmodel.names
         self.fixed_params = []
@@ -69,6 +73,13 @@ class P1DLikelihood():
     def free_params(self):
         return [x for x in self.names if x not in self.fixed_params]
 
+    def resetMini(self):
+        for key, boun in self.boundary.items():
+            self._mini.limits[key] = boun
+
+        for key in self.free_params:
+            self._mini.values[key] = self.initial[key]
+
     def fixParam(self, key, value=None):
         self.fixed_params.append(key)
         idx = self.names.index(key)
@@ -87,33 +98,11 @@ class P1DLikelihood():
         self._free_idx.append(idx)
         self._free_idx.sort()
 
-    def sample(self, label, nwalkers=32, nsamples=20000):
-        ndim = len(self.free_params)
-        sampler = emcee.EnsembleSampler(nwalkers, ndim, self.likelihood)
+    def setupZbin(self, z, kmin=1e-3, kmax=None):
+        if z is None:
+            assert self.p1dmodel is not None
+            return
 
-        rshift = 1e-4 * np.random.default_rng().normal(size=(nwalkers, ndim))
-        p0 = self._mini.values[self.free_params] + rshift
-        self.resetBoundary()
-
-        _ = sampler.run_mcmc(p0, nsamples, progress=True)
-
-        try:
-            tau = sampler.get_autocorr_time()
-            print("Auto correlations:", tau)
-        except Exception:
-            pass
-
-        samples = MCSamples(
-            samples=sampler.get_chain(discard=1000, thin=15, flat=True),
-            names=self.free_params, label=label
-        )
-
-        samples.paramNames.setLabels(
-            [self.param_labels[_] for _ in self.free_params])
-
-        return samples
-
-    def fitDataBin(self, z, kmin=1e-3, kmax=None, print_info=False):
         if kmax is None:
             rkms = (
                 fitp1d.model.LIGHT_SPEED * 0.8
@@ -129,6 +118,52 @@ class P1DLikelihood():
 
         kedges = (self._data['k1'], self._data['k2'])
         self.p1dmodel.cache(kedges, z, self._data)
+
+    def sample(
+            self, label, z=None, kmin=1e-3, kmax=None,
+            nwalkers=8, nsamples=4000, discard=1000, thin=15
+    ):
+        self.setupZbin(z, kmin, kmax)
+        ndim = len(self.free_params)
+        sampler = emcee.EnsembleSampler(nwalkers, ndim, self.likelihood)
+
+        rshift = 1e-4 * np.random.default_rng().normal(size=(nwalkers, ndim))
+        p0 = self._mini.values[self.free_params] + rshift
+        # self.resetBoundary()
+
+        _ = sampler.run_mcmc(p0, nsamples, progress=True)
+
+        try:
+            tau = sampler.get_autocorr_time()
+            print("Auto correlations:", tau)
+        except Exception as e:
+            print(e)
+            pass
+
+        samples = MCSamples(
+            samples=sampler.get_chain(discard=discard, thin=thin, flat=True),
+            names=self.free_params, label=label
+        )
+
+        samples.paramNames.setLabels(
+            [self.param_labels[_] for _ in self.free_params])
+
+        return samples
+
+    def fitDataBin(
+            self, z, kmin=1e-3, kmax=None, print_info=False,
+            interm_fix_keys=[]
+    ):
+        self.setupZbin(z, kmin, kmax)
+
+        if interm_fix_keys:
+            for _ in interm_fix_keys:
+                self._mini.fixed[_] = True
+
+            self._mini.migrad()
+
+            for _ in self.free_params:
+                self._mini.fixed[_] = False
 
         self._mini.migrad()
 
