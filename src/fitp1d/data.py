@@ -80,6 +80,7 @@ class DetailedData():
         self.data_table = data_table.copy()
         self.fname = fname
         self._check_keys()
+        self.z_bins = np.unique(self.data_table['z'])
 
     @property
     def size(self):
