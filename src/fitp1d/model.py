@@ -624,7 +624,7 @@ class FiducialCorrectionModel(LyaP1DSimpleModel):
 
 
 class LyaP1DArinyoModel(Model):
-    CAMB_KMAX = 2e2
+    CAMB_KMAX = 20
     CAMB_KMIN = 1e-3
 
     PIVOT_K = 0.7  # Mpc^-1
@@ -633,31 +633,31 @@ class LyaP1DArinyoModel(Model):
     def __init__(self, use_camb):
         super().__init__()
         self._use_camb = use_camb
-        self.names = ['blya', 'beta', 'q1', '100kv', 'av', 'bv', 'kp']
+        self.names = ['blya', 'beta', 'q1', '10kv', 'av', 'bv', 'kp']
 
         self.initial = {
-            'blya': -0.15, 'beta': 1.7, 'q1': 0.7, '100kv': 40.,
+            'blya': -0.15, 'beta': 1.7, 'q1': 0.7, '10kv': 4,
             'av': 0.4, 'bv': 1.65, 'kp': 16.8,
             'Ode0': Planck18.Ode0, 'H0': Planck18.H0.value
         }
         self.prior['beta'] = 0.3
-        # Loose Accel2 priors
-        self.prior['q1'] = 0.4
-        self.prior['100kv'] = 40.0
-        self.prior['av'] = 1.0
-        self.prior['bv'] = 0.2
+        # Loose priors
+        # self.prior['q1'] = 1.0
+        # self.prior['10kv'] = 8.0
+        # self.prior['av'] = 0.2
+        # self.prior['bv'] = 0.2
 
         self.param_labels = {
             "blya": r"b_\mathrm{Lya}", "beta": r"\beta_\mathrm{Lya}",
-            "q1": r"q_1", "100kv": r"100 k_\nu [Mpc^{-1}]", "av": r"a_\nu",
+            "q1": r"q_1", "10kv": r"10 k_\nu [Mpc^{-1}]", "av": r"a_\nu",
             "bv": r"b_\nu", "kp": r"k_p [Mpc^{-1}]",
             "Ode0": r"\Omega_\Lambda", "H0": r"H_0 [km~s^{-1}~Mpc^{-1}]"
         }
 
         self.boundary = {
-            'blya': (-5, 0), 'beta': (0, 5), 'q1': (0.01, 5.),
-            '100kv': (0.1, 200.), 'av': (0.1, 5.), 'bv': (0.1, 5.),
-            'kp': (1., 100.),
+            'blya': (-5.0, 0.01), 'beta': (0, 5), 'q1': (0., 2.),
+            '10kv': (0., 50.), 'av': (0.1, 0.5), 'bv': (1.5, 1.8),
+            'kp': (0., 100.),
             'Ode0': (0.5, 0.9), 'H0': (50., 100.)
         }
 
@@ -805,9 +805,9 @@ class LyaP1DArinyoModel(Model):
             self.newKandP(k1d_skm, **kwargs)
 
         t1 = (
-            (self._k3d_Mpc / kwargs['100kv'])**kwargs['av']
+            (self._k3d_Mpc / kwargs['10kv'])**kwargs['av']
             * self._mu**kwargs['bv']
-        ) * 100.0**-kwargs['av']
+        ) * 10**-kwargs['av']
         t2 = (self._k3d_Mpc / kwargs['kp'])**2
         p3d = np.exp(kwargs['q1'] * (1 - t1) - t2)
         p3d *= self._p3dlin
