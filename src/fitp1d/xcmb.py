@@ -2,59 +2,22 @@ import functools
 
 import numpy as np
 from astropy.cosmology import Planck18
-from scipy.integrate import quad
 from scipy.interpolate import CubicSpline
 from scipy.optimize import curve_fit
 from scipy.special import spherical_jn
 
 import cosmopower
 
-from fitp1d.model import Model, LIGHT_SPEED, BOLTZMANN_K, M_PROTON
-
-
-HUBBLE_DISTANCE_Mpch = LIGHT_SPEED / 100  # Mpc / h
-
-
-def efunc(z, Om0, Or0=Planck18.Ogamma0):
-    return np.sqrt(1 - Om0 - Or0 + Om0 * (1 + z)**3 + Or0 * (1 + z)**4)
-
-
-def invEfunc(z, Om0, Or0=Planck18.Ogamma0):
-    return np.sqrt(1 - Om0 - Or0 + Om0 * (1 + z)**3 + Or0 * (1 + z)**4)**-1
-
-
-def getLinearGrowth(z1, z2, Om0, Or0=Planck18.Ogamma0):
-    def _integ(x):
-        return (1 + x) * invEfunc(x, Om0, Or0)**3
-    integ1 = quad(_integ, z2, z1)[0]
-    norm = quad(_integ, z1, np.inf)[0]
-    return (1 + integ1 / norm) * efunc(z2, Om0, Or0) * invEfunc(z1, Om0, Or0)
-
-
-def getMpc2Kms(zarr, **kwargs):
-    h = kwargs['h']
-    Om0 = (kwargs['omega_b'] + kwargs['omega_cdm']) / h**2
-    return 100. * h * efunc(zarr, Om0) / (1 + zarr)
-
-
-def comovingDistanceMpch(Om0, z, dz=0.01):
-    npoints = min(1000, int(z / dz))
-    zinteg, dz = np.linspace(0, z, npoints, retstep=True)
-    return HUBBLE_DISTANCE_Mpch * np.trapz(invEfunc(zinteg, Om0), dx=dz)
-
-
-def comovingDistanceMpch_d2z(Om0, z, Or0=Planck18.Ogamma0):
-    inv_e = invEfunc(z, Om0)
-    exde_dz = (1 + z)**2 * (1.5 * Om0 + 2 * Or0 * (1 + z))
-    return -HUBBLE_DISTANCE_Mpch * inv_e**3 * exde_dz
+from fitp1d.model import Model, BOLTZMANN_K, M_PROTON
+import fitp1d.basic_cosmo as mycosmo
 
 
 def kappaKernel(Om0, z, z_source=1100):
     """ This is W_kappa(chi), so it returns in h / Mpc units
     """
-    chi = comovingDistanceMpch(Om0, z)
-    chi_S = comovingDistanceMpch(Om0, z_source)
-    A = 1.5 * Om0 / HUBBLE_DISTANCE_Mpch**2
+    chi = mycosmo.comovingDistanceMpch(Om0, z)
+    chi_S = mycosmo.comovingDistanceMpch(Om0, z_source)
+    A = 1.5 * Om0 / mycosmo.HUBBLE_DISTANCE_Mpch**2
 
     return A * (1 + z) * chi * (1. - chi / chi_S)
 
@@ -62,9 +25,9 @@ def kappaKernel(Om0, z, z_source=1100):
 def kappaKerneldChi(Om0, z, z_source=1100):
     """ This is W'_kappa(chi), so it returns in h^2 / Mpc^2 units
     """
-    chi = comovingDistanceMpch(Om0, z)
-    chi_S = comovingDistanceMpch(Om0, z_source)
-    A = 1.5 * Om0 / HUBBLE_DISTANCE_Mpch**2
+    chi = mycosmo.comovingDistanceMpch(Om0, z)
+    chi_S = mycosmo.comovingDistanceMpch(Om0, z_source)
+    A = 1.5 * Om0 / mycosmo.HUBBLE_DISTANCE_Mpch**2
 
     return A * (1 + z) * (1. - 2 * chi / chi_S)
 
@@ -209,9 +172,9 @@ class LyaxCmbModel(Model):
         self.dz = dz
         self.setKappaOm0Interp()
         self.chiz_om0_mpch_fn = np.vectorize(
-            functools.partial(comovingDistanceMpch, z=self.z))
+            functools.partial(mycosmo.comovingDistanceMpch, z=self.z))
         self.chiz_d2z_om0_mpch_fn = np.vectorize(
-            functools.partial(comovingDistanceMpch_d2z, z=self.z))
+            functools.partial(mycosmo.comovingDistanceMpch_d2z, z=self.z))
 
     def setIntegrationArrays(self, nlnkbins=None, nwbins=None, klimits=None):
         if klimits:
@@ -291,7 +254,7 @@ class LyaxCmbModel(Model):
             'log10T': np.array([4.]),
             'nu0_th': np.array([1.5]), 'nu1_th': np.array([1])
         }
-        self._sigma_th_pivot_kms = LIGHT_SPEED * np.sqrt(
+        self._sigma_th_pivot_kms = mycosmo.LIGHT_SPEED * np.sqrt(
             BOLTZMANN_K * 10000. / M_PROTON)
 
         self.boundary = {
@@ -353,7 +316,7 @@ class LyaxCmbModel(Model):
         Om0 = (kwargs['omega_b'] + kwargs['omega_cdm']) / h**2
         if zarr is None:
             zarr = self.z
-        return 100. * h * efunc(zarr, Om0) / (1 + zarr)
+        return 100. * h * mycosmo.efunc(zarr, Om0) / (1 + zarr)
 
     def getKms2Mpc(self, **kwargs):
         return self.getMpc2Kms(**kwargs)**-1
