@@ -242,12 +242,12 @@ class LyaP1DArinyoModel2(Model):
             bbeta = kwargs[f'bbeta{i}']
             kp = kwargs[f'kp{i}']
             kv10 = kwargs[f'10kv{i}']
-            t1 = self._Delta2[i] * (
+            t1 = (
                 (self._k3d_Mpc[i] / kv10)**kwargs['av']
                 * self._mu[i]**kwargs['bv']
             ) * 10**-kwargs['av']
             t2 = (self._k3d_Mpc[i] / kp)**2
-            p3d = np.exp(kwargs['q1'] * (1 - t1) - t2)
+            p3d = np.exp(kwargs['q1'] * self._Delta2[i] * (1 - t1) - t2)
 
             p3d *= self._p3dlin[i]
             p3d *= (blya + bbeta * self._mu[i]**2)**2
