@@ -127,7 +127,7 @@ class P1DLikelihood():
         ndim = len(self.free_params)
         sampler = emcee.EnsembleSampler(nwalkers, ndim, self.likelihood)
 
-        rshift = 1e-4 * np.random.default_rng().normal(size=(nwalkers, ndim))
+        rshift = 1e-2 * np.random.default_rng().normal(size=(nwalkers, ndim))
         p0 = self._mini.values[self.free_params] + rshift
         # self.resetBoundary()
 
@@ -150,6 +150,32 @@ class P1DLikelihood():
 
         return samples
 
+    def sampleNautilus(
+            self, label, z, kmin=1e-3, kmax=None, nlive=1000, pool=4,
+            verbose=True
+    ):
+        from nautilus import Prior, Sampler
+
+        self.setupZbin(z, kmin, kmax)
+        prior = Prior()
+        for key in self.free_params:
+            prior.add_parameter(key, dist=self.boundary[key])
+
+        sampler = Sampler(
+            prior, self.likelihood, n_live=nlive, pass_dict=False, pool=pool)
+        sampler.run(verbose=verbose)
+        points, log_w, log_l = sampler.posterior()
+
+        samples = MCSamples(
+            samples=points, weights=np.exp(log_w), loglikes=log_l,
+            names=self.free_params, label=label
+        )
+
+        samples.paramNames.setLabels(
+            [self.param_labels[_] for _ in self.free_params])
+
+        return samples
+
     def fitDataBin(
             self, z, kmin=1e-3, kmax=None, print_info=False,
             interm_fix_keys=[]
@@ -162,8 +188,9 @@ class P1DLikelihood():
 
             self._mini.migrad()
 
-            for _ in self.free_params:
+            for _ in reversed(self.free_params):
                 self._mini.fixed[_] = False
+                self._mini.migrad()
 
         self._mini.migrad()
 
@@ -203,7 +230,7 @@ class P1DLikelihood():
         for i, par in enumerate(self.free_params):
             x1, x2 = self.boundary[par]
 
-            if args[i] < x1 or args[i] > x2:
+            if args[i] <= x1 or args[i] >= x2:
                 return -np.inf
 
         self._new_args[self._free_idx] = args
