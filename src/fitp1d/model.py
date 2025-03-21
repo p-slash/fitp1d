@@ -14,7 +14,7 @@ LYA_WAVELENGTH = 1215.67
 BOLTZMANN_K = 8.617333262e-5  # eV / K
 M_PROTON = 0.938272088e9  # eV
 
-_NSUB_K_ = 5
+_NSUB_K_ = 4
 
 PDW_FIT_AMP = 7.63089e-02
 PDW_FIT_N = -2.52054e+00
@@ -624,8 +624,8 @@ class FiducialCorrectionModel(LyaP1DSimpleModel):
 
 
 class LyaP1DArinyoModel(Model):
-    CAMB_KMAX = 20
-    CAMB_KMIN = 1e-3
+    CAMB_KMAX = 1e2
+    CAMB_KMIN = 1e-2
 
     PIVOT_K = 0.7  # Mpc^-1
     PIVOT_Z = 3.0
@@ -644,8 +644,8 @@ class LyaP1DArinyoModel(Model):
         # Loose priors
         # self.prior['q1'] = 1.0
         # self.prior['10kv'] = 8.0
-        # self.prior['av'] = 0.2
-        # self.prior['bv'] = 0.2
+        self.prior['av'] = 0.2
+        self.prior['bv'] = 0.2
 
         self.param_labels = {
             "blya": r"b_\mathrm{Lya}", "beta": r"\beta_\mathrm{Lya}",
@@ -796,7 +796,7 @@ class LyaP1DArinyoModel(Model):
         self._mu = _k1d_Mpc / self._k3d_Mpc
 
         self._p3dlin = np.exp(self._cosmo_interp(np.log(self._k3d_Mpc)))
-        self._Delta2 = self._p3dlin * self._k3d_Mpc**3 / 2 / np.pi**2
+        self._Delta2 = self._p3dlin * self._k3d_Mpc**3 / (2 * np.pi**2)
 
     def evaluateP3D(self, k1d_skm=None, **kwargs):
         if not self.fixedCosmology:
@@ -804,26 +804,26 @@ class LyaP1DArinyoModel(Model):
         if not self.fixedCosmology or k1d_skm is not None:
             self.newKandP(k1d_skm, **kwargs)
 
-        t1 = (
+        t1 = 1.0 - 10**-kwargs['av'] * (
             (self._k3d_Mpc / kwargs['10kv'])**kwargs['av']
             * self._mu**kwargs['bv']
-        ) * 10**-kwargs['av']
+        )
         t2 = (self._k3d_Mpc / kwargs['kp'])**2
-        p3d = np.exp(kwargs['q1'] * (1 - t1) - t2)
+        p3d = np.exp(kwargs['q1'] * self._Delta2 * t1 - t2)
         p3d *= self._p3dlin
-        p3d *= kwargs['blya']**2 * (1.0 + kwargs['beta'] * self._mu**2)**2
+        p3d *= (1.0 + kwargs['beta'] * self._mu**2)**2
 
         return p3d
 
     def evaluate(self, k1d_skm, **kwargs):
         p3d_flux = self.evaluateP3D(k1d_skm, **kwargs) * self._kperp2pi
         p1d_kms = self.Mpc2kms * np.trapz(p3d_flux, dx=self._dlnkperp, axis=0)
-        return p1d_kms
+        return kwargs['blya']**2 * p1d_kms
 
     def getCachedModel(self, **kwargs):
         p3d_flux = self.evaluateP3D(**kwargs) * self._kperp2pi
         p1d_kms = self.Mpc2kms * np.trapz(p3d_flux, dx=self._dlnkperp, axis=0)
-        return p1d_kms  # .reshape(self.ndata, _NSUB_K_)
+        return kwargs['blya']**2 * p1d_kms  # .reshape(self.ndata, _NSUB_K_)
 
 
 class CombinedModel(Model):
