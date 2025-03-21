@@ -80,6 +80,16 @@ class P1DLikelihood():
         for key in self.free_params:
             self._mini.values[key] = self.initial[key]
 
+    def resetBoundary(self, gp=5.0):
+        centers = self._mini.values.to_dict()
+        sigmas = self._mini.errors.to_dict()
+
+        for i, par in enumerate(self.names):
+            x1 = max(self.boundary[par][0], centers[par] - gp * sigmas[par])
+            x2 = min(self.boundary[par][1], centers[par] + gp * sigmas[par])
+
+            self.boundary[par] = (x1, x2)
+
     def fixParam(self, key, value=None):
         self.fixed_params.append(key)
         idx = self.names.index(key)
@@ -118,63 +128,6 @@ class P1DLikelihood():
 
         kedges = (self._data['k1'], self._data['k2'])
         self.p1dmodel.cache(kedges, z, self._data)
-
-    def sample(
-            self, label, z=None, kmin=1e-3, kmax=None,
-            nwalkers=8, nsamples=4000, discard=1000, thin=15
-    ):
-        self.setupZbin(z, kmin, kmax)
-        ndim = len(self.free_params)
-        sampler = emcee.EnsembleSampler(nwalkers, ndim, self.likelihood)
-
-        rshift = 1e-2 * np.random.default_rng().normal(size=(nwalkers, ndim))
-        p0 = self._mini.values[self.free_params] + rshift
-        # self.resetBoundary()
-
-        _ = sampler.run_mcmc(p0, nsamples, progress=True)
-
-        try:
-            tau = sampler.get_autocorr_time()
-            print("Auto correlations:", tau)
-        except Exception as e:
-            print(e)
-            pass
-
-        samples = MCSamples(
-            samples=sampler.get_chain(discard=discard, thin=thin, flat=True),
-            names=self.free_params, label=label
-        )
-
-        samples.paramNames.setLabels(
-            [self.param_labels[_] for _ in self.free_params])
-
-        return samples
-
-    def sampleNautilus(
-            self, label, z, kmin=1e-3, kmax=None, nlive=1000, pool=4,
-            verbose=True
-    ):
-        from nautilus import Prior, Sampler
-
-        self.setupZbin(z, kmin, kmax)
-        prior = Prior()
-        for key in self.free_params:
-            prior.add_parameter(key, dist=self.boundary[key])
-
-        sampler = Sampler(
-            prior, self.likelihood, n_live=nlive, pass_dict=False, pool=pool)
-        sampler.run(verbose=verbose)
-        points, log_w, log_l = sampler.posterior()
-
-        samples = MCSamples(
-            samples=points, weights=np.exp(log_w), loglikes=log_l,
-            names=self.free_params, label=label
-        )
-
-        samples.paramNames.setLabels(
-            [self.param_labels[_] for _ in self.free_params])
-
-        return samples
 
     def fitDataBin(
             self, z, kmin=1e-3, kmax=None, print_info=False,
@@ -216,16 +169,6 @@ class P1DLikelihood():
 
         return chi2
 
-    def resetBoundary(self, gp=5.0):
-        centers = self._mini.values.to_dict()
-        sigmas = self._mini.errors.to_dict()
-
-        for i, par in enumerate(self.names):
-            x1 = max(self.boundary[par][0], centers[par] - gp * sigmas[par])
-            x2 = min(self.boundary[par][1], centers[par] + gp * sigmas[par])
-
-            self.boundary[par] = (x1, x2)
-
     def likelihood(self, args):
         for i, par in enumerate(self.free_params):
             x1, x2 = self.boundary[par]
@@ -236,3 +179,89 @@ class P1DLikelihood():
         self._new_args[self._free_idx] = args
 
         return -0.5 * self.chi2(*self._new_args)
+
+    def likelihood_noprior_no_bounds(self, kwargs):
+        # self._new_args[self._free_idx] = args
+        # kwargs = {par: args[i] for i, par in enumerate(self.names)}
+        x = self.p1dmodel.getIntegratedModel(**kwargs) - self._data['p_final']
+
+        if self._cov is None:
+            return -0.5 * np.sum(x**2 * self._invcov)
+        else:
+            return -0.5 * x.dot(self._invcov.dot(x))
+
+    def sample(
+            self, label, z=None, kmin=1e-3, kmax=None,
+            nwalkers=8, nsamples=4000, discard=1000, thin=15
+    ):
+        self.setupZbin(z, kmin, kmax)
+        ndim = len(self.free_params)
+        sampler = emcee.EnsembleSampler(nwalkers, ndim, self.likelihood)
+
+        rshift = 1e-2 * np.random.default_rng().normal(size=(nwalkers, ndim))
+        p0 = self._mini.values[self.free_params] + rshift
+        # self.resetBoundary()
+
+        _ = sampler.run_mcmc(p0, nsamples, progress=True)
+
+        try:
+            tau = sampler.get_autocorr_time()
+            print("Auto correlations:", tau)
+        except Exception as e:
+            print(e)
+            pass
+
+        samples = MCSamples(
+            samples=sampler.get_chain(discard=discard, thin=thin, flat=True),
+            names=self.free_params, label=label
+        )
+
+        samples.paramNames.setLabels(
+            [self.param_labels[_] for _ in self.free_params])
+
+        return samples
+
+    def sampleNautilus(
+            self, label, z, kmin=1e-3, kmax=None, nlive=1000, pool=4,
+            verbose=True
+    ):
+        from nautilus import Prior, Sampler
+        from scipy.stats import truncnorm
+
+        self.setupZbin(z, kmin, kmax)
+
+        prior = Prior()
+        for key in self.names:
+            loc = self.initial[key]
+            if key in self.fixed_params:
+                prior.add_parameter(key, dist=loc)
+
+            elif key in self.prior:
+                x1, x2 = self.boundary[key]
+                s = self.prior[key]
+                a, b = (x1 - loc) / s, (x2 - loc) / s
+                prior.add_parameter(key, dist=truncnorm(
+                    loc=loc, scale=s, a=a, b=b)
+                )
+
+            elif key in self.boundary:
+                prior.add_parameter(key, dist=self.boundary[key])
+
+            else:
+                prior.add_parameter(key)
+
+        sampler = Sampler(
+            prior, self.likelihood_noprior_no_bounds,
+            n_live=nlive, pass_dict=True, pool=pool)
+        sampler.run(verbose=verbose)
+        points, log_w, log_l = sampler.posterior()
+
+        samples = MCSamples(
+            samples=points, weights=np.exp(log_w), loglikes=log_l,
+            names=self.free_params, label=label
+        )
+
+        samples.paramNames.setLabels(
+            [self.param_labels[_] for _ in self.free_params])
+
+        return samples
