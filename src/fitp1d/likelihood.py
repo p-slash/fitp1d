@@ -25,6 +25,26 @@ class P1DLikelihood():
         else:
             raise Exception("File type not recognized")
 
+    @property
+    def names(self):
+        return self.p1dmodel.names
+
+    @property
+    def initial(self):
+        return self.p1dmodel.initial
+
+    @property
+    def boundary(self):
+        return self.p1dmodel.boundary
+
+    @property
+    def prior(self):
+        return self.p1dmodel.prior
+
+    @property
+    def param_labels(self):
+        return self.p1dmodel.param_labels
+
     def __init__(
             self, fname_power, use_camb=False, use_simple_lya_model=False,
             model_ions=["Si-II", "Si-III", "O-I"],
@@ -45,12 +65,7 @@ class P1DLikelihood():
         if fit_poly_order > 0:
             self.p1dmodel.addPolynomialP1dTerms(fit_poly_order)
 
-        self.names = self.p1dmodel.names
         self.fixed_params = []
-        self.initial = self.p1dmodel.initial
-        self.boundary = self.p1dmodel.boundary
-        self.prior = self.p1dmodel.prior
-        self.param_labels = self.p1dmodel.param_labels
         self._new_args = np.empty(len(self.names))
         self._free_idx = list(np.arange(self._new_args.size))
 
