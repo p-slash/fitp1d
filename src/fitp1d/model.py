@@ -472,7 +472,7 @@ class PolynomialModel(Model):
             self.names.append(key)
             self.initial[key] = 0.
             self.param_labels[key] = key
-            self.boundary[key] = (-10., 10.)
+            self.boundary[key] = (-3., 3.)
 
         self._x = None
         self._amp = 1
@@ -624,13 +624,13 @@ class FiducialCorrectionModel(LyaP1DSimpleModel):
 
 
 class LyaP1DArinyoModel(Model):
-    CAMB_KMAX = 1e2
-    CAMB_KMIN = 1e-2
+    CAMB_KMAX = 1e1
+    KPERP_MIN = 1e-4
 
     PIVOT_K = 0.7  # Mpc^-1
     PIVOT_Z = 3.0
 
-    def __init__(self, use_camb):
+    def __init__(self, use_camb, nkperp=500):
         super().__init__()
         self._use_camb = use_camb
         self.names = ['blya', 'beta', 'q1', '10kv', 'av', 'bv', 'kp']
@@ -682,15 +682,15 @@ class LyaP1DArinyoModel(Model):
             self.initial |= {'n_p': -2.307, 'alpha_p': -0.21857}
             # 'Delta2_p': r"$\Delta^2_p$"
             self.param_labels |= {'n_p': r"n_p", 'alpha_p': r"\alpha_p"}
-            self.boundary |= {'n_p': (-3.0, -1.5), 'alpha_p': (-0.3, -0.1)}
+            self.boundary |= {'n_p': (-3.0, -1.5), 'alpha_p': (-0.3, 0.01)}
 
         self.names = self._cosmo_names + self.names
 
         self._kperp, self._dlnkperp = np.linspace(
-            np.log(LyaP1DArinyoModel.CAMB_KMIN),
-            np.log(LyaP1DArinyoModel.CAMB_KMAX), 500, retstep=True)
+            np.log(LyaP1DArinyoModel.KPERP_MIN),
+            np.log(LyaP1DArinyoModel.CAMB_KMAX), nkperp, retstep=True)
         self._kperp = np.exp(self._kperp)[:, np.newaxis]
-        self._kperp2pi = self._kperp**2 / (2 * np.pi)
+        self._kperp2 = self._kperp**2
 
         self.z = None
         self._p3dlin = None
@@ -706,8 +706,8 @@ class LyaP1DArinyoModel(Model):
     def cache(self, kedges, z):
         assert isinstance(kedges, tuple)
 
-        if self.z is not None and np.isclose(self.z, z):
-            return
+        # if self.z is not None and np.isclose(self.z, z):
+        #     return
 
         k1, k2 = kedges
         self.kfine = np.linspace(k1, k2, _NSUB_K_, endpoint=False).T.ravel()
@@ -816,14 +816,15 @@ class LyaP1DArinyoModel(Model):
         return p3d
 
     def evaluate(self, k1d_skm, **kwargs):
-        p3d_flux = self.evaluateP3D(k1d_skm, **kwargs) * self._kperp2pi
+        p3d_flux = self.evaluateP3D(k1d_skm, **kwargs) * self._kperp2
         p1d_kms = self.Mpc2kms * np.trapz(p3d_flux, dx=self._dlnkperp, axis=0)
-        return kwargs['blya']**2 * p1d_kms
+        return kwargs['blya']**2 * p1d_kms / (2 * np.pi)
 
     def getCachedModel(self, **kwargs):
-        p3d_flux = self.evaluateP3D(**kwargs) * self._kperp2pi
+        p3d_flux = self.evaluateP3D(**kwargs) * self._kperp2
         p1d_kms = self.Mpc2kms * np.trapz(p3d_flux, dx=self._dlnkperp, axis=0)
-        return kwargs['blya']**2 * p1d_kms  # .reshape(self.ndata, _NSUB_K_)
+        # .reshape(self.ndata, _NSUB_K_)
+        return kwargs['blya']**2 * p1d_kms / (2 * np.pi)
 
 
 class CombinedModel(Model):
