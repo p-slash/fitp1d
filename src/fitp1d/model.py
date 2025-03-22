@@ -215,7 +215,7 @@ class IonModel(Model):
 
     def __init__(
             self, model_ions=["Si-II", "Si-III"], vmax=0,
-            per_transition_bias=False, doppler_boost=10.
+            per_transition_bias=False, doppler_boost=-5e3
     ):
         super().__init__()
         if per_transition_bias:
@@ -237,11 +237,11 @@ class IonModel(Model):
         else:
             self._ions = model_ions.copy()
             self.param_labels = {
-                "a_Si-II": r"a-{\mathrm{Si~II}}",
-                "a_Si-III": r"a-{\mathrm{Si~III}}",
-                "a_Si-IV": r"a-{\mathrm{Si~IV}}",
-                "a_O-I": r"a-{\mathrm{O~I}}", "a_C-II": r"a-{\mathrm{C~II}}",
-                "a_C-IV": r"a-{\mathrm{C~IV}}"
+                "a_Si-II": r"a_{\mathrm{Si~II}}",
+                "a_Si-III": r"a_{\mathrm{Si~III}}",
+                "a_Si-IV": r"a_{\mathrm{Si~IV}}",
+                "a_O-I": r"a_{\mathrm{O~I}}", "a_C-II": r"a_{\mathrm{C~II}}",
+                "a_C-IV": r"a_{\mathrm{C~IV}}"
             }
             self._transitions = IonModel.Transitions.copy()
             self._pivots = IonModel.PivotF.copy()
@@ -313,8 +313,8 @@ class IonModel(Model):
         self._integrated_model['oneion_a2'] = {}
         self._integrated_model['twoion_a2'] = {}
 
-        if self.bboost > 0:
-            boost = np.exp((self.kfine * self.bboost)**2 / 2)
+        if self.bboost != 0:
+            boost = np.exp((self.bboost / 2) * self.kfine**2)
         else:
             boost = 1
 
@@ -324,7 +324,7 @@ class IonModel(Model):
             ).reshape(nkbins, _NSUB_K_).mean(axis=1)
 
         boost **= 2
-        if self.bboost > 0:
+        if self.bboost != 0:
             for ionkey, value in self._splines['const_a2'].items():
                 self._integrated_model['const_a2'][ionkey] = (
                     value * boost).reshape(nkbins, _NSUB_K_).mean(axis=1)
@@ -368,8 +368,8 @@ class IonModel(Model):
     def evaluate(self, k, **kwargs):
         result = np.zeros_like(k)
 
-        if self.bboost > 0:
-            boost = np.exp((k * self.bboost)**2 / 2)
+        if self.bboost != 0:
+            boost = np.exp((self.bboost / 2) * k**2)
         else:
             boost = 1
 
@@ -471,7 +471,7 @@ class PolynomialModel(Model):
             key = f"PMC{n}"
             self.names.append(key)
             self.initial[key] = 0.
-            self.param_labels[key] = key
+            self.param_labels[key] = rf"C_{{{n}}}"
             self.boundary[key] = (-3., 3.)
 
         self._x = None
@@ -480,9 +480,9 @@ class PolynomialModel(Model):
     def cache(self, x, a=1):
         self._x = x.copy()
         self._amp = a
-        if a != 1:
-            for key in self.names:
-                self.param_labels[key] = f"{key}/{a:.2e}"
+        for n in range(self.order):
+            key = f"PMC{n}"
+            self.boundary[key] = (-0.1 * a, 0.1 * a)
 
     def evaluate(self, x, **kwargs):
         if self.order < 0:
@@ -490,7 +490,7 @@ class PolynomialModel(Model):
 
         pmc = [kwargs[f'PMC{n}'] for n in reversed(range(self.order))]
 
-        return self._amp * np.polyval(pmc, x)
+        return np.polyval(pmc, x)
 
     def getCachedModel(self, **kwargs):
         return self.evaluate(self._x, **kwargs)
@@ -649,9 +649,9 @@ class LyaP1DArinyoModel(Model):
 
         self.param_labels = {
             "blya": r"b_\mathrm{Lya}", "beta": r"\beta_\mathrm{Lya}",
-            "q1": r"q_1", "10kv": r"10 k_\nu [Mpc^{-1}]", "av": r"a_\nu",
-            "bv": r"b_\nu", "kp": r"k_p [Mpc^{-1}]",
-            "Ode0": r"\Omega_\Lambda", "H0": r"H_0 [km~s^{-1}~Mpc^{-1}]"
+            "q1": r"q_1", "10kv": r"10 k_\nu [\mathrm{Mpc}^{-1}]",
+            "av": r"a_\nu", "bv": r"b_\nu", "kp": r"k_p [\mathrm{Mpc}^{-1}]",
+            "Ode0": r"\Omega_\Lambda", "H0": r"100h"
         }
 
         self.boundary = {
@@ -714,6 +714,7 @@ class LyaP1DArinyoModel(Model):
         self.ndata = k1.size
         self.z = z
         self.initial['blya'] = -0.1195977 * ((1 + z) / 3.4)**3.37681
+        self.initial['beta'] = 1.624834 * ((1 + z) / 3.4)**-1.33528423
         # self.initial['bbeta'] = 1.6633 * self.initial['blya']
 
         # shape = (self._kperp.shape[0], k1.size, _NSUB_K_)
@@ -809,9 +810,8 @@ class LyaP1DArinyoModel(Model):
             * self._mu**kwargs['bv']
         )
         t2 = (self._k3d_Mpc / kwargs['kp'])**2
-        p3d = np.exp(kwargs['q1'] * self._Delta2 * t1 - t2)
-        p3d *= self._p3dlin
-        p3d *= (1.0 + kwargs['beta'] * self._mu**2)**2
+        p3d = self._p3dlin * (1.0 + kwargs['beta'] * self._mu**2)**2 * np.exp(
+            kwargs['q1'] * self._Delta2 * t1 - t2)
 
         return p3d
 
@@ -918,6 +918,7 @@ class CombinedModel(Model):
 
     def cache(self, kedges, z, data, kfund_mult=16):
         self._models['lya'].cache(kedges, z)
+        self.initial.update(self._models['lya'].initial)
         if self._xi1d:
             Rkms = LIGHT_SPEED * 0.8 / (1 + z) / LYA_WAVELENGTH
             self._dv = np.mean(kedges[1] - kedges[0]) / _NSUB_K_
@@ -937,6 +938,7 @@ class CombinedModel(Model):
         if 'poly' in self._models:
             a = evaluatePD13Lorentz(PD13_PIVOT_K, z, *PDW_FIT_PARAMETERS)
             self._models['poly'].cache(data['kc'] / PD13_PIVOT_K, a)
+            self.boundary.update(self._models['poly'].boundary)
 
         if 'fid' in self._models:
             self._models['fid'].cache(kedges, z)
