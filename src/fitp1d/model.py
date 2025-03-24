@@ -681,7 +681,7 @@ class LyaP1DArinyoModel(Model):
             self.initial |= {'n_p': -2.307, 'alpha_p': -0.21857}
             # 'Delta2_p': r"$\Delta^2_p$"
             self.param_labels |= {'n_p': r"n_p", 'alpha_p': r"\alpha_p"}
-            self.boundary |= {'n_p': (-3.0, -1.5), 'alpha_p': (-0.3, 0.01)}
+            self.boundary |= {'n_p': (-2.5, -2.1), 'alpha_p': (-0.3, -0.1)}
 
         self.names = self._cosmo_names + self.names
 
@@ -718,7 +718,7 @@ class LyaP1DArinyoModel(Model):
 
         # kp
         p = [-1.5971111, 3.13981077]
-        self.initial['kp'] = 10.0 * np.exp(np.polyval(p, zz))
+        self.initial['kp'] = np.exp(np.polyval(p, zz))
 
     def cache(self, kedges, z):
         assert isinstance(kedges, tuple)
