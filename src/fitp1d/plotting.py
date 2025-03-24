@@ -90,7 +90,7 @@ def plotEllipseMinimizer(
 
 def plotCornerSamples(
         list_samples, vars2plot=None, contour_colors=None, ofname=None,
-        show=True
+        show=True, truth={}
 ):
     gplt = getdist_plots.get_subplot_plotter()
     if not isinstance(list_samples, list):
@@ -114,7 +114,8 @@ def plotCornerSamples(
         list_samples, vars2plot,
         filled=True,
         contour_colors=contour_colors,
-        legend_loc='upper right'
+        legend_loc='upper right',
+        markers=truth, marker_args={'lw': 1}
     )
 
     if ofname:
