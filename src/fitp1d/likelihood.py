@@ -50,7 +50,8 @@ class P1DLikelihood():
             model_ions=["Si-II", "Si-III", "O-I"],
             fname_cov=None, cov=None, forecast=False,
             fit_scaling_systematics=False,
-            fit_poly_order=-1
+            fit_poly_order=-1,
+            hcd_systems=['sDLA']
     ):
         self.readData(fname_power, fname_cov, cov)
 
@@ -58,7 +59,8 @@ class P1DLikelihood():
             syst = self.psdata.data_table.dtype.names
         else:
             syst = []
-        self.p1dmodel = fitp1d.model.CombinedModel(syst, use_camb, model_ions)
+        self.p1dmodel = fitp1d.model.CombinedModel(
+            syst, use_camb, model_ions, hcd_systems=hcd_systems)
         if use_simple_lya_model:
             self.p1dmodel.useSimpleLyaModel()
 
