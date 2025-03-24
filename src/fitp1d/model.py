@@ -478,9 +478,9 @@ class HcdModel(Model):
         self._systems = systems
         self.names = ['rHcd0'] + systems
         self.param_labels = {
-            'lDLA': r'r_\rm{lDLA}', 'sDLA': r'r_\rm{sDLA}',
-            'subDLA': r'r_\rm{subDLA}', 'LLS': r'r_\rm{LLS}',
-            'rHcd0': r'r_0^\rm{HCD}'
+            'lDLA': r'r_\mathrm{lDLA}', 'sDLA': r'r_\mathrm{sDLA}',
+            'subDLA': r'r_\mathrm{subDLA}', 'LLS': r'r_\mathrm{LLS}',
+            'rHcd0': r'r_0^\mathrm{HCD}'
         }
 
         for s in self.names:
@@ -518,7 +518,7 @@ class PolynomialModel(Model):
             self.initial[key] = 0.
             self.param_labels[key] = rf"C_{{{n}}}"
             self.boundary[key] = (-3., 3.)
-            self.prior[key] = 0.02
+            # self.prior[key] = 0.02
 
         self._x = None
         self._amp = 1
