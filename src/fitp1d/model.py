@@ -459,6 +459,51 @@ class NoiseModel(Model):
         return kwargs['eta_noise'] * self._cached_noise
 
 
+class HcdModel(Model):
+    coeffs = {
+        'lDLA': [0.8633, 430.0, 0.3339],
+        'sDLA': [1.1415, 163.0, 0.6572],
+        'subDLA': [1.5083, 81.4, 0.8667],
+        'LLS': [2.2001, 36.449, 0.9849]
+    }
+    gamma = -3.55
+
+    def eval(k, z, a, b, c):
+        amp = np.power((1.0 + z) / 3.0, HcdModel.gamma)
+        den = a * np.exp(b * k) - 1
+        return c + amp * den**-2
+
+    def __init__(self, systems=['lDLA', 'sDLA']):
+        super().__init__()
+        self._systems = systems
+        self.names = ['rHcd0'] + systems
+        self.param_labels = {
+            'lDLA': r'r_\rm{lDLA}', 'sDLA': r'r_\rm{sDLA}',
+            'subDLA': r'r_\rm{subDLA}', 'LLS': r'r_\rm{LLS}',
+            'rHcd0': r'r_0^\rm{HCD}'
+        }
+
+        for s in self.names:
+            self.initial[s] = 0.0
+            if s == 'subDLA' or s == 'LLS' or s == 'rHcd0':
+                self.initial[s] = 1.0
+            self.boundary[s] = (-1.0, 2.0)
+
+        self._cached_model = {}
+        self.ksize = 0
+
+    def cache(self, k, z):
+        self.ksize = k.size
+        for s in self._systems:
+            self._cached_model[s] = HcdModel.eval(k, z, *HcdModel.coeffs[s])
+
+    def getCachedModel(self, **kwargs):
+        result = np.full(self.ksize, kwargs['rHcd0'], dtype=float)
+        for s in self._systems:
+            result += kwargs[s] * self._cached_model[s]
+        return result
+
+
 class PolynomialModel(Model):
     def __init__(self, order):
         super().__init__()
@@ -473,6 +518,7 @@ class PolynomialModel(Model):
             self.initial[key] = 0.
             self.param_labels[key] = rf"C_{{{n}}}"
             self.boundary[key] = (-3., 3.)
+            self.prior[key] = 0.02
 
         self._x = None
         self._amp = 1
@@ -482,7 +528,7 @@ class PolynomialModel(Model):
         self._amp = a
         for n in range(self.order):
             key = f"PMC{n}"
-            self.boundary[key] = (-0.1 * a, 0.1 * a)
+            self.boundary[key] = (-a, a)
 
     def evaluate(self, x, **kwargs):
         if self.order < 0:
@@ -643,7 +689,7 @@ class LyaP1DArinyoModel(Model):
 
         self.prior = {
             'beta': 0.1, 'q1': 0.03, '10kv': 1.0, 'av': 0.09, 'bv': 0.07,
-            'kp': 1.0
+            'kp': 1.0, 'H0': 1.0
         }
 
         self.param_labels = {
@@ -654,8 +700,8 @@ class LyaP1DArinyoModel(Model):
         }
 
         self.boundary = {
-            'blya': (-5.0, 0.01), 'beta': (0, 5), 'q1': (0., 2.),
-            '10kv': (0., 50.), 'av': (0.1, 0.5), 'bv': (1.5, 1.8),
+            'blya': (-5.0, 0.01), 'beta': (0, 5), 'q1': (0., 4.),
+            '10kv': (0., 50.), 'av': (0.1, 0.6), 'bv': (1.5, 1.8),
             'kp': (0., 100.),
             'Ode0': (0.5, 0.9), 'H0': (50., 100.)
         }
@@ -681,7 +727,7 @@ class LyaP1DArinyoModel(Model):
             self.initial |= {'n_p': -2.307, 'alpha_p': -0.21857}
             # 'Delta2_p': r"$\Delta^2_p$"
             self.param_labels |= {'n_p': r"n_p", 'alpha_p': r"\alpha_p"}
-            self.boundary |= {'n_p': (-2.5, -2.1), 'alpha_p': (-0.3, -0.1)}
+            self.boundary |= {'n_p': (-3.0, -1.5), 'alpha_p': (-0.5, 0.1)}
 
         self.names = self._cosmo_names + self.names
 
@@ -860,7 +906,7 @@ class CombinedModel(Model):
     def __init__(
             self, syst_dtype_names, use_camb=False,
             model_ions=["Si-II", "Si-III", "O-I"], per_transition_bias=False,
-            xi1d=False
+            xi1d=False, hcd_systems=['lDLA', 'sDLA', 'subDLA', 'LLS']
     ):
         super().__init__()
         self._models = {
@@ -871,6 +917,9 @@ class CombinedModel(Model):
             # 'reso': ResolutionModel(add_reso_bias, add_var_reso),
             # 'noise': NoiseModel()
         }
+
+        if hcd_systems:
+            self._models['hcd'] = HcdModel(hcd_systems)
 
         self._xi1d = xi1d
         self._syst_models = []
@@ -948,11 +997,15 @@ class CombinedModel(Model):
         kfine = self._models['lya'].kfine
         self._models['ion'].cache(kfine)
 
+        if 'hcd' in self._models:
+            self._models['hcd'].cache(kfine, z)
+
         # rkms = LIGHT_SPEED * 0.8 / (1 + z) / LYA_WAVELENGTH
         # self._models['reso'].cache(kfine, rkms)
         if 'poly' in self._models:
-            a = evaluatePD13Lorentz(PD13_PIVOT_K, z, *PDW_FIT_PARAMETERS)
-            self._models['poly'].cache(data['kc'] / PD13_PIVOT_K, a)
+            Rkms = LIGHT_SPEED * 0.8 / (1 + z) / LYA_WAVELENGTH
+            # a = evaluatePD13Lorentz(PD13_PIVOT_K, z, *PDW_FIT_PARAMETERS)
+            self._models['poly'].cache(data['kc'] * Rkms)
             self.boundary.update(self._models['poly'].boundary)
 
         if 'fid' in self._models:
@@ -965,6 +1018,9 @@ class CombinedModel(Model):
     def getIntegratedModel(self, **kwargs):
         result = self._models['lya'].getCachedModel(**kwargs)
         result *= self._models['ion'].getCachedModel(**kwargs)
+        if 'hcd' in self._models:
+            result *= self._models['hcd'].getCachedModel(**kwargs)
+
         # result *= self._models['reso'].getCachedModel(**kwargs)
         result = result.reshape(self.ndata, _NSUB_K_).mean(axis=1)
         result += self._additive_corrections

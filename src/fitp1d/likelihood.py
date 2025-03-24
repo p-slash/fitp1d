@@ -84,6 +84,9 @@ class P1DLikelihood():
             self.fixParam("beta", 0)
             self.fixParam("k1", np.inf)
 
+        if fit_poly_order > 0:
+            self.fixParam("PMC0", 1.0)
+
     @property
     def free_params(self):
         return [x for x in self.names if x not in self.fixed_params]
