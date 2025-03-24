@@ -637,18 +637,17 @@ class LyaP1DArinyoModel(Model):
 
         self.initial = {
             'blya': -0.15, 'beta': 1.7, 'q1': 0.7, '10kv': 4,
-            'av': 0.4, 'bv': 1.65, 'kp': 16.8,
+            'av': 0.3517, 'bv': 1.64, 'kp': 16.8,
             'Ode0': Planck18.Ode0, 'H0': Planck18.H0.value
         }
-        self.prior['beta'] = 0.3
-        # Loose priors
-        # self.prior['q1'] = 1.0
-        # self.prior['10kv'] = 8.0
-        self.prior['av'] = 0.2
-        self.prior['bv'] = 0.2
+
+        self.prior = {
+            'beta': 0.1, 'q1': 0.03, '10kv': 1.0, 'av': 0.09, 'bv': 0.07,
+            'kp': 1.0
+        }
 
         self.param_labels = {
-            "blya": r"b_\mathrm{Lya}", "beta": r"\beta_\mathrm{Lya}",
+            "blya": r"b_F", "beta": r"\beta_F",
             "q1": r"q_1", "10kv": r"10 k_\nu [\mathrm{Mpc}^{-1}]",
             "av": r"a_\nu", "bv": r"b_\nu", "kp": r"k_p [\mathrm{Mpc}^{-1}]",
             "Ode0": r"\Omega_\Lambda", "H0": r"100h"
@@ -703,6 +702,24 @@ class LyaP1DArinyoModel(Model):
         self.fixedCosmology = False
         self._cosmo_interp = None
 
+    def _arinyo_priors(self, z):
+        zz = (1 + z) / 3.4
+        self.initial['blya'] = -0.1195977 * zz**3.37681
+        self.initial['beta'] = 1.624834 * zz**-1.33528423
+
+        zz = np.log(zz)
+        # q1
+        p = [5.11588146, 0.54663367, -0.25640034]
+        self.initial['q1'] = np.exp(np.polyval(p, zz))
+
+        # knu
+        p = [3.01574091, -0.5334553]
+        self.initial['10kv'] = 10.0 * np.exp(np.polyval(p, zz))
+
+        # kp
+        p = [-1.5971111, 3.13981077]
+        self.initial['kp'] = 10.0 * np.exp(np.polyval(p, zz))
+
     def cache(self, kedges, z):
         assert isinstance(kedges, tuple)
 
@@ -713,9 +730,7 @@ class LyaP1DArinyoModel(Model):
         self.kfine = np.linspace(k1, k2, _NSUB_K_, endpoint=False).T.ravel()
         self.ndata = k1.size
         self.z = z
-        self.initial['blya'] = -0.1195977 * ((1 + z) / 3.4)**3.37681
-        self.initial['beta'] = 1.624834 * ((1 + z) / 3.4)**-1.33528423
-        # self.initial['bbeta'] = 1.6633 * self.initial['blya']
+        self._arinyo_priors(z)
 
         # shape = (self._kperp.shape[0], k1.size, _NSUB_K_)
 
