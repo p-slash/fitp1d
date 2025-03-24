@@ -51,7 +51,7 @@ class P1DLikelihood():
             fname_cov=None, cov=None, forecast=False,
             fit_scaling_systematics=False,
             fit_poly_order=-1,
-            hcd_systems=['sDLA']
+            hcd_systems=None
     ):
         self.readData(fname_power, fname_cov, cov)
 
