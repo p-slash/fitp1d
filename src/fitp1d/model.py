@@ -670,26 +670,28 @@ class FiducialCorrectionModel(LyaP1DSimpleModel):
 
 
 class LyaP1DArinyoModel(Model):
-    CAMB_KMAX = 1e1
+    CAMB_KMAX = 2e2
+    KPERP_MAX = 25.0
     KPERP_MIN = 1e-4
 
     PIVOT_K = 0.7  # Mpc^-1
     PIVOT_Z = 3.0
 
-    def __init__(self, use_camb, nkperp=500):
+    def __init__(self, use_camb, nkperp=500, which_prior="accel2"):
         super().__init__()
         self._use_camb = use_camb
         self.names = ['blya', 'beta', 'q1', '10kv', 'av', 'bv', 'kp']
+        self.setPriors(which_prior)
 
         self.initial = {
-            'blya': -0.15, 'beta': 1.7, 'q1': 0.7, '10kv': 4,
+            'blya': -0.15, 'beta': 1.7, 'q1': 0.7, '10kv': 4.0,
             'av': 0.3517, 'bv': 1.64, 'kp': 16.8,
             'Ode0': Planck18.Ode0, 'H0': Planck18.H0.value
         }
 
         self.prior = {
-            'beta': 0.1, 'q1': 0.03, '10kv': 1.0, 'av': 0.09, 'bv': 0.07,
-            'kp': 1.0, 'H0': 1.0
+            'beta': 0.1, 'q1': 0.1, '10kv': 1.0, 'av': 0.1, 'bv': 0.1,
+            'kp': 1.0, 'Ode0': 0.001, 'H0': 0.42
         }
 
         self.param_labels = {
@@ -701,31 +703,26 @@ class LyaP1DArinyoModel(Model):
 
         self.boundary = {
             'blya': (-5.0, 0.01), 'beta': (0, 5), 'q1': (0., 4.),
-            '10kv': (0., 50.), 'av': (0.1, 0.6), 'bv': (1.5, 1.8),
+            '10kv': (0., 50.), 'av': (0.1, 1.0), 'bv': (1.5, 1.8),
             'kp': (0., 100.),
             'Ode0': (0.5, 0.9), 'H0': (50., 100.)
         }
 
         if use_camb:
-            self._cosmo_names = ['ln10As', 'ns', 'mnu', 'Ode0', 'H0']
-            self.initial |= {
-                'ln10As': 3.044, 'ns': Planck18.meta['n'],
-                'mnu': 8.
-            }
+            self._cosmo_names = ['ln10As', 'ns', 'Ode0', 'H0']
+            self.initial |= {'ln10As': 3.044, 'ns': Planck18.meta['n']}
             self.param_labels |= {
-                "ln10As": r"\ln(10^{10} A_s)",
-                "ns": r"$n_s$", "mnu": r"$\sum m_\nu$ [$10^{-2}~$eV]"
+                "ln10As": r"\ln(10^{10} A_s)", "ns": r"$n_s$"
+                # , "mnu": r"$\sum m_\nu$ [$10^{-2}~$eV]"
             }
-            self.boundary |= {
-                'ln10As': (2., 4.), 'ns': (0.94, 1.), 'mnu': (0., 50.),
-            }
+            self.boundary |= {'ln10As': (2., 4.), 'ns': (0.94, 1.)}
+            self.prior.update({'ns': 0.0038, 'ln10As': 0.014})
         else:
             # 'Delta2_p' cannot be constrained
             self._Delta2_p = 0.35862820928538586
             self._cosmo_names = ['n_p', 'alpha_p', 'Ode0', 'H0']
-            # 'Delta2_p': 0.35
+
             self.initial |= {'n_p': -2.307, 'alpha_p': -0.21857}
-            # 'Delta2_p': r"$\Delta^2_p$"
             self.param_labels |= {'n_p': r"n_p", 'alpha_p': r"\alpha_p"}
             self.boundary |= {'n_p': (-3.0, -1.5), 'alpha_p': (-0.5, 0.1)}
 
@@ -733,7 +730,7 @@ class LyaP1DArinyoModel(Model):
 
         self._kperp, self._dlnkperp = np.linspace(
             np.log(LyaP1DArinyoModel.KPERP_MIN),
-            np.log(LyaP1DArinyoModel.CAMB_KMAX), nkperp, retstep=True)
+            np.log(LyaP1DArinyoModel.KPERP_MAX), nkperp, retstep=True)
         self._kperp = np.exp(self._kperp)[:, np.newaxis]
         self._kperp2 = self._kperp**2
 
@@ -748,7 +745,15 @@ class LyaP1DArinyoModel(Model):
         self.fixedCosmology = False
         self._cosmo_interp = None
 
-    def _arinyo_priors(self, z):
+    def setPriors(self, which_prior):
+        if which_prior == "accel2":
+            self._prior_fnc = self._accel2_priors
+        elif which_prior == "arinyo":
+            self._prior_fnc = self._arinyo_priors
+        else:
+            raise Exception("unknown prior for LyaP1DArinyoModel")
+
+    def _accel2_priors(self, z):
         zz = (1 + z) / 3.4
         self.initial['blya'] = -0.1195977 * zz**3.37681
         self.initial['beta'] = 1.624834 * zz**-1.33528423
@@ -762,9 +767,23 @@ class LyaP1DArinyoModel(Model):
         p = [3.01574091, -0.5334553]
         self.initial['10kv'] = 10.0 * np.exp(np.polyval(p, zz))
 
+        # anu
+        p = [-7.0814179, 0.66289561, -0.8946459]
+        self.initial['av'] = np.exp(np.polyval(p, zz))
+
         # kp
         p = [-1.5971111, 3.13981077]
         self.initial['kp'] = np.exp(np.polyval(p, zz))
+
+    def _arinyo_priors(self, z):
+        self.initial.update({
+            'q1': 0.8128, 'av': 0.5718, 'bv': 1.63, 'kp': 13.0,
+            '10kv': 10.0 * 0.6344774865797442
+        })
+
+        zz = (1 + z) / 3.4
+        self.initial['blya'] = -0.1195977 * zz**3.37681
+        self.initial['beta'] = 1.436 * zz**-1.082
 
     def cache(self, kedges, z):
         assert isinstance(kedges, tuple)
@@ -776,7 +795,7 @@ class LyaP1DArinyoModel(Model):
         self.kfine = np.linspace(k1, k2, _NSUB_K_, endpoint=False).T.ravel()
         self.ndata = k1.size
         self.z = z
-        self._arinyo_priors(z)
+        self._prior_fnc(z)
 
         # shape = (self._kperp.shape[0], k1.size, _NSUB_K_)
 
@@ -805,14 +824,14 @@ class LyaP1DArinyoModel(Model):
             WantCls=False, WantScalars=False,
             WantTensors=False, WantVectors=False,
             WantDerivedParameters=False,
-            WantTransfer=True,
+            WantTransfer=True, kmax=50.0,
             omch2=(1 - Ode0 - Planck18.Ob0) * h**2,
             ombh2=Planck18.Ob0 * h**2,
             omk=0.,
             H0=H0,
             ns=kwargs['ns'],
             As=np.exp(kwargs['ln10As']) * 1e-10,
-            mnu=kwargs['mnu'] / 100.
+            mnu=0.0
         )
         camb_results = camb.get_results(camb_params)
 
@@ -832,9 +851,7 @@ class LyaP1DArinyoModel(Model):
         pk = np.append(pk, [pk0 + dlog * delta * 0.9, pk0 + dlog * delta])
         khs = np.append(khs, [logextrap - delta * 0.1, logextrap])
 
-        self._cosmo_interp = CubicSpline(
-            khs, pk, bc_type='natural', extrapolate=True
-        )
+        self._cosmo_interp = CubicSpline(khs, pk)
 
     def fixCosmology(self, **kwargs):
         _cosmo_params = kwargs.copy()
@@ -844,6 +861,7 @@ class LyaP1DArinyoModel(Model):
             _cosmo_params[key] = self.initial[key]
 
         self.newCambInterp(**_cosmo_params)
+        self.newKandP(None, **_cosmo_params)
         self.fixedCosmology = True
 
     def newKandP(self, k1d_skm, **kwargs):
@@ -866,7 +884,7 @@ class LyaP1DArinyoModel(Model):
         if not self.fixedCosmology or k1d_skm is not None:
             self.newKandP(k1d_skm, **kwargs)
 
-        t1 = 1.0 - 10**-kwargs['av'] * (
+        t1 = 1.0 - 10**kwargs['av'] * (
             (self._k3d_Mpc / kwargs['10kv'])**kwargs['av']
             * self._mu**kwargs['bv']
         )
@@ -977,6 +995,8 @@ class CombinedModel(Model):
         self._models['CD'] = ContinuumDistortionModel(cd_model=cd_model)
         self._setAttr()
 
+    def setLyaPrior(self, which_prior):
+        self._models['lya'].setPriors(which_prior)
     # def setNoiseModel(self, p_noise):
     #     self._models['noise'].cache(p_noise)
 
