@@ -88,6 +88,35 @@ def plotEllipseMinimizer(
     return ax
 
 
+def plotAllEllipses(likeli, ofname=None):
+    free_params = likeli.free_params
+    mini = likeli._mini
+    model = likeli
+
+    nplots = len(free_params)
+    nplots *= nplots - 1
+    nplots //= 2
+    ncols = round(np.sqrt(nplots))
+    nrows = int(np.ceil(nplots / ncols))
+    fig, axs = plt.subplots(
+        nrows, ncols, figsize=(5 * ncols, 5 * nrows),
+        gridspec_kw={'hspace': 0.2, 'wspace': 0.3})
+
+    j = 0
+    for i, key1 in enumerate(free_params[:-1]):
+        for key2 in free_params[i + 1:]:
+            plotEllipseMinimizer(
+                mini, key1, key2, model.param_labels, 'tab:blue',
+                ax=axs[j // ncols, j % ncols],
+                alpha=0.6, box=True, truth=model.initial, prior=model.prior
+            )
+            j += 1
+
+    if ofname:
+        plt.savefig(ofname, dpi=200, bbox_inches='tight')
+    plt.close()
+
+
 def plotCornerSamples(
         list_samples, vars2plot=None, contour_colors=None, ofname=None,
         show=True, truth={}
@@ -138,13 +167,14 @@ def plotFitNData(likeli, plot_ratio=True):
 
         plt.plot(k, model * k / np.pi, 'k-')
         plt.yscale("log")
+        plt.ylabel(r"$kP/\pi$")
     else:
         plt.errorbar(
             k, data['p_final'] / model, data['e_total'] / model,
             fmt='o', capsize=2)
+        plt.ylabel(r"$P_\mathrm{data}/P_\mathrm{bestfit}$")
 
     plt.xscale("log")
-    plt.ylabel(r"$kP/\pi$")
     plt.xlabel(r"$k$ [s km$^{-1}$]")
 
     return plt.gca()
