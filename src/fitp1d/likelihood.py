@@ -82,12 +82,16 @@ class P1DLikelihood():
             self._mini.limits[key] = boun
 
         if use_simple_lya_model:
-            self.fixParam("B", 0)
-            self.fixParam("beta", 0)
-            self.fixParam("k1", np.inf)
+            self.initial.update({'B': 0, 'beta': 0, 'k1': np.inf})
+            self.fixParam("B")
+            self.fixParam("beta")
+            self.fixParam("k1")
 
         if fit_poly_order > 0:
-            self.fixParam("PMC0", 1.0)
+            self.initial["PMC0"] = 1.0
+            self.fixParam("PMC0")
+
+        self._fixed_cosmology = False
 
     @property
     def free_params(self):
@@ -110,16 +114,19 @@ class P1DLikelihood():
 
             self.boundary[par] = (x1, x2)
 
-    def fixParam(self, key, value=None):
-        self.fixed_params.append(key)
+    def fixCosmology(self):
+        self._fixed_cosmology = True
+        for key in self.p1dmodel._models['lya']._cosmo_names:
+            self.fixParam(key)
+
+    def fixParam(self, key):
         idx = self.names.index(key)
-        self._free_idx.remove(idx)
+
+        if key not in self.fixed_params:
+            self.fixed_params.append(key)
+            self._free_idx.remove(idx)
 
         self._mini.fixed[key] = True
-        if value is not None:
-            self._mini.values[key] = value
-
-        self._new_args[idx] = self._mini.values[key]
 
     def releaseParam(self, key):
         self._mini.fixed[key] = False
@@ -148,6 +155,14 @@ class P1DLikelihood():
 
         kedges = (self._data['k1'], self._data['k2'])
         self.p1dmodel.cache(kedges, z, self._data)
+
+        if self._fixed_cosmology:
+            self.p1dmodel.fixCosmology(**self.initial)
+
+        for key in self.fixed_params:
+            idx = self.names.index(key)
+            self._mini.values[key] = self.initial[key]
+            self._new_args[idx] = self._mini.values[key]
 
     def fitDataBin(
             self, z, kmin=1e-3, kmax=None, print_info=False,
