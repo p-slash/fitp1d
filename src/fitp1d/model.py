@@ -680,31 +680,31 @@ class LyaP1DArinyoModel(Model):
     def __init__(self, use_camb, nkperp=500, which_prior="accel2"):
         super().__init__()
         self._use_camb = use_camb
-        self.names = ['blya', 'beta', 'q1', '10kv', 'av', 'bv', 'kp']
+        self.names = ['blya', 'beta', 'q1', 'kvav', 'cv', 'bv', 'kp']
         self.setPriors(which_prior)
 
         self.initial = {
-            'blya': -0.15, 'beta': 1.7, 'q1': 0.7, '10kv': 4.0,
-            'av': 0.3517, 'bv': 1.64, 'kp': 16.8,
+            'blya': -0.15, 'beta': 1.7, 'q1': 0.7, 'kvav': 1.0,
+            'cv': 1.35, 'bv': 1.64, 'kp': 16.8,
             'Ode0': Planck18.Ode0, 'H0': Planck18.H0.value
         }
 
         self.prior = {
-            'beta': 0.1, 'q1': 0.1, '10kv': 1.0, 'av': 0.1, 'bv': 0.1,
+            'beta': 0.1, 'q1': 0.1, 'kvav': 0.11, 'cv': 0.11, 'bv': 0.15,
             'kp': 1.0, 'Ode0': 0.001, 'H0': 0.42
         }
 
         self.param_labels = {
             "blya": r"b_F", "beta": r"\beta_F",
-            "q1": r"q_1", "10kv": r"10 k_\nu [\mathrm{Mpc}^{-1}]",
-            "av": r"a_\nu", "bv": r"b_\nu", "kp": r"k_p [\mathrm{Mpc}^{-1}]",
+            "q1": r"q_1", "kvav": r"k_\nu^{a_\nu}",
+            "cv": r"c_\nu", "bv": r"b_\nu", "kp": r"k_p [\mathrm{Mpc}^{-1}]",
             "Ode0": r"\Omega_\Lambda", "H0": r"100h"
         }
 
         self.boundary = {
-            'blya': (-5.0, 0.01), 'beta': (0, 5), 'q1': (0., 4.),
-            '10kv': (0., 50.), 'av': (0.1, 1.0), 'bv': (1.5, 1.8),
-            'kp': (0., 100.),
+            'blya': (-5.0, 0.01), 'beta': (0., 5.), 'q1': (0., 4.),
+            'kvav': (0.1, 3.0), 'cv': (0.1, 3.0), 'bv': (1.0, 2.2),
+            'kp': (1.0, 100.),
             'Ode0': (0.5, 0.9), 'H0': (50., 100.)
         }
 
@@ -763,13 +763,13 @@ class LyaP1DArinyoModel(Model):
         p = [5.11588146, 0.54663367, -0.25640034]
         self.initial['q1'] = np.exp(np.polyval(p, zz))
 
-        # knu
-        p = [3.01574091, -0.5334553]
-        self.initial['10kv'] = 10.0 * np.exp(np.polyval(p, zz))
+        # knu^anu
+        p = [0.88951404, -0.19101304]
+        self.initial['kvav'] = np.exp(np.polyval(p, zz))
 
-        # anu
-        p = [-7.0814179, 0.66289561, -0.8946459]
-        self.initial['av'] = np.exp(np.polyval(p, zz))
+        # cnu
+        p = [0.37512518, 0.23847601]
+        self.initial['cv'] = np.exp(np.polyval(p, zz))
 
         # kp
         p = [-1.5971111, 3.13981077]
@@ -777,8 +777,8 @@ class LyaP1DArinyoModel(Model):
 
     def _arinyo_priors(self, z):
         self.initial.update({
-            'q1': 0.8128, 'av': 0.5718, 'bv': 1.63, 'kp': 13.0,
-            '10kv': 10.0 * 0.6344774865797442
+            'q1': 0.8128, 'cv': 1.05, 'bv': 1.63, 'kp': 13.0,
+            'kvav': 0.77
         })
 
         zz = (1 + z) / 3.4
@@ -871,9 +871,9 @@ class LyaP1DArinyoModel(Model):
 
         self.Mpc2kms = getHubbleZ(self.z, H0, Ode0) / (1 + self.z)
 
-        _k1d_Mpc = k1d_skm * self.Mpc2kms
-        self._k3d_Mpc = np.sqrt(self._kperp**2 + _k1d_Mpc**2)
-        self._mu = _k1d_Mpc / self._k3d_Mpc
+        self._k1d_Mpc = k1d_skm * self.Mpc2kms
+        self._k3d_Mpc = np.sqrt(self._kperp**2 + self._k1d_Mpc**2)
+        self._mu = self._k1d_Mpc / self._k3d_Mpc
 
         self._p3dlin = np.exp(self._cosmo_interp(np.log(self._k3d_Mpc)))
         self._Delta2 = self._p3dlin * self._k3d_Mpc**3 / (2 * np.pi**2)
@@ -884,9 +884,8 @@ class LyaP1DArinyoModel(Model):
         if not self.fixedCosmology or k1d_skm is not None:
             self.newKandP(k1d_skm, **kwargs)
 
-        t1 = 1.0 - 10**kwargs['av'] * (
-            (self._k3d_Mpc / kwargs['10kv'])**kwargs['av']
-            * self._mu**kwargs['bv']
+        t1 = 1.0 - ((self._k1d_Mpc**kwargs['bv']) / kwargs['kvav']) * (
+            self._k3d_Mpc**-kwargs['cv']
         )
         t2 = (self._k3d_Mpc / kwargs['kp'])**2
         p3d = self._p3dlin * (1.0 + kwargs['beta'] * self._mu**2)**2 * np.exp(
