@@ -392,6 +392,55 @@ class IonModel(Model):
         return result
 
 
+class DoubletModel(Model):
+    """Assumes relative strength r=0.5 """
+    Transitions = {
+        "ew_Si-IV": LIGHT_SPEED * np.log(1402.77 / 1393.76),
+        "ew_Mg-II": LIGHT_SPEED * np.log(2802.704 / 2795.528),
+        "ew_C-IV": LIGHT_SPEED * np.log(1550.774 / 1548.202),
+    }
+
+    def __init__(self, model_ions=["C-IV"], doppler=60.0):
+        super().__init__()
+
+        self.names = [f"ew_{ion}" for ion in model_ions]
+        self.initial = {k: 0.1 for k in self.names}
+        self.boundary = {k: (-5.0, 5.0) for k in self.names}
+        self.param_labels = {
+            "ew_Si-IV": r"\mathrm{EW}_{\mathrm{Si~IV}}",
+            "ew_Mg-II": r"\mathrm{EW}_{\mathrm{Mg~II}}",
+            "ew_C-IV": r"\mathrm{EW}_{\mathrm{C~IV}}"
+        }
+
+        self.doppler = doppler
+
+        self._cached_model = {}
+        self.kfine = None
+
+    def cache(self, kfine):
+        self.kfine = kfine
+        supp = np.exp(-(kfine * self.doppler)**2)
+
+        for key in self.names:
+            dv = DoubletModel.Transitions[key]
+            self._cached_model[key] = (1.25 + np.cos(kfine * dv)) * supp
+
+    def getCachedModel(self, **kwargs):
+        result = np.zeros_like(self.kfine)
+        for key in self.names:
+            result += kwargs[key] * self._cached_model[key]
+
+        return result
+
+    def eval(self, k, **kwargs):
+        result = np.zeros_like(k)
+        for key in self.names:
+            dv = DoubletModel.Transitions[key]
+            result += kwargs[key] * (1.25 + np.cos(k * dv))
+
+        return result * np.exp(-(k * self.doppler)**2)
+
+
 class ResolutionModel(Model):
     def __init__(self, add_bias=True, add_variance=True):
         super().__init__()
@@ -923,7 +972,9 @@ class CombinedModel(Model):
     def __init__(
             self, syst_dtype_names, use_camb=False,
             model_ions=["Si-II", "Si-III", "O-I"], per_transition_bias=False,
-            xi1d=False, hcd_systems=['lDLA', 'sDLA', 'subDLA', 'LLS']
+            doublet_ions=['C-IV'],
+            hcd_systems=['lDLA', 'sDLA', 'subDLA', 'LLS'],
+            xi1d=False
     ):
         super().__init__()
         self._models = {
@@ -934,6 +985,9 @@ class CombinedModel(Model):
             # 'reso': ResolutionModel(add_reso_bias, add_var_reso),
             # 'noise': NoiseModel()
         }
+
+        if doublet_ions:
+            self._models['doublet'] = DoubletModel(doublet_ions)
 
         if hcd_systems:
             self._models['hcd'] = HcdModel(hcd_systems)
@@ -1016,6 +1070,9 @@ class CombinedModel(Model):
         kfine = self._models['lya'].kfine
         self._models['ion'].cache(kfine)
 
+        if 'doublet' in self._models:
+            self._models['doublet'].cache(kfine)
+
         if 'hcd' in self._models:
             self._models['hcd'].cache(kfine, z)
 
@@ -1039,6 +1096,9 @@ class CombinedModel(Model):
         result *= self._models['ion'].getCachedModel(**kwargs)
         if 'hcd' in self._models:
             result *= self._models['hcd'].getCachedModel(**kwargs)
+
+        if 'doublet' in self._models:
+            result += self._models['doublet'].getCachedModel(**kwargs)
 
         # result *= self._models['reso'].getCachedModel(**kwargs)
         result = result.reshape(self.ndata, _NSUB_K_).mean(axis=1)
