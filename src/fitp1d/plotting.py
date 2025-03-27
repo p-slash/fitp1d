@@ -144,7 +144,7 @@ def plotCornerSamples(
         filled=True,
         contour_colors=contour_colors,
         legend_loc='upper right',
-        markers=truth, marker_args={'lw': 1}
+        markers=truth, marker_args={'lw': 2}
     )
 
     if ofname:
