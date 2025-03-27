@@ -159,10 +159,11 @@ def plotFitNData(likeli, plot_ratio=True):
     k = data['kc']
     fit = likeli._mini.values.to_dict()
     model = likeli.p1dmodel.getIntegratedModel(**fit)
+    err = np.sqrt(likeli._cov.diagonal())
 
     if not plot_ratio:
         plt.errorbar(
-            k, data['p_final'] * k / np.pi, data['e_total'] * k / np.pi,
+            k, data['p_final'] * k / np.pi, err * k / np.pi,
             fmt='o', capsize=2)
 
         plt.plot(k, model * k / np.pi, 'k-')
@@ -170,9 +171,10 @@ def plotFitNData(likeli, plot_ratio=True):
         plt.ylabel(r"$kP/\pi$")
     else:
         plt.errorbar(
-            k, data['p_final'] / model, data['e_total'] / model,
+            k, data['p_final'] / model, err / model,
             fmt='o', capsize=2)
         plt.ylabel(r"$P_\mathrm{data}/P_\mathrm{bestfit}$")
+        plt.axhline(1.0, c='k')
 
     plt.xscale("log")
     plt.xlabel(r"$k$ [s km$^{-1}$]")
