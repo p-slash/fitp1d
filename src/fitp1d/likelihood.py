@@ -48,6 +48,7 @@ class P1DLikelihood():
     def __init__(
             self, fname_power, use_camb=False, use_simple_lya_model=False,
             model_ions=["Si-II", "Si-III", "O-I"], doublet_ions=['C-IV'],
+            turn_off_x_ion_terms=False,
             fname_cov=None, cov=None, forecast=False,
             fit_scaling_systematics=False,
             fit_poly_order=-1,
@@ -60,7 +61,9 @@ class P1DLikelihood():
         else:
             syst = []
         self.p1dmodel = fitp1d.model.CombinedModel(
-            syst, use_camb, model_ions=model_ions, doublet_ions=doublet_ions,
+            syst, use_camb, model_ions=model_ions,
+            turn_off_x_ion_terms=turn_off_x_ion_terms,
+            doublet_ions=doublet_ions,
             hcd_systems=hcd_systems)
         if use_simple_lya_model:
             self.p1dmodel.useSimpleLyaModel()
