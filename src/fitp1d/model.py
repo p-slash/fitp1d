@@ -64,9 +64,9 @@ def simpleLinearPower(lnk, Delta2_p, n_p, alpha_p, lnkp):
     return np.log(Delta2_p * 2.0 * np.pi**2) + m * q - 3 * lnkp
 
 
-def getCambLinearPowerInterp(zlist, ln10As, ns, Om0, Ob0, H0, mnu=0):
+def getCambLinearPowerInterp(zlist, ln10As, ns, Odm0, Ob0, H0, mnu=0):
     h = H0 / 100
-    omch2 = (Om0 - Ob0) * h**2
+    omch2 = Odm0 * h**2
     ombh2 = Ob0 * h**2
 
     camb_params = camb.set_params(
@@ -74,7 +74,7 @@ def getCambLinearPowerInterp(zlist, ln10As, ns, Om0, Ob0, H0, mnu=0):
         WantCls=False, WantScalars=False,
         WantTensors=False, WantVectors=False,
         WantDerivedParameters=False,
-        WantTransfer=True,
+        WantTransfer=True, kmax=30.0,
         omch2=omch2,
         ombh2=ombh2,
         omk=0.,
@@ -87,7 +87,8 @@ def getCambLinearPowerInterp(zlist, ln10As, ns, Om0, Ob0, H0, mnu=0):
 
     # Note this interpolator in Mpc units without h
     camb_interp = camb_results.get_matter_power_interpolator(
-        nonlinear=False, hubble_units=False, k_hunit=False)
+        nonlinear=False, hubble_units=False, k_hunit=False,
+        extrap_kmax=1e3)
 
     return camb_interp.P
 
@@ -166,6 +167,10 @@ class IonModel(Model):
             lpivot, fpivot = self._pivots[ion]
             fpivot *= lpivot
 
+            if self.turn_off_x_ion_terms:
+                self._splines['oneion_a2'][f"a_{ion}"] = lambda k: 0
+                continue
+
             for p1, p2 in itertools.combinations(transitions, 2):
                 vmn = np.abs(LIGHT_SPEED * np.log(p2[0] / p1[0]))
 
@@ -193,6 +198,10 @@ class IonModel(Model):
             fp1 *= lp1
             fp2 *= lp2
 
+            if self.turn_off_x_ion_terms:
+                i2a2[f"a_{i1}-a_{i2}"] = lambda k: 0
+                continue
+
             for (p1, p2) in itertools.product(t1, t2):
                 vmn = np.abs(LIGHT_SPEED * np.log(p2[0] / p1[0]))
 
@@ -215,9 +224,11 @@ class IonModel(Model):
 
     def __init__(
             self, model_ions=["Si-II", "Si-III"], vmax=0,
-            per_transition_bias=False, doppler_boost=-5e3
+            per_transition_bias=False, doppler_boost=-(1.0 / 0.009)**2 / 2.0,
+            turn_off_x_ion_terms=False
     ):
         super().__init__()
+        self.turn_off_x_ion_terms = turn_off_x_ion_terms
         if per_transition_bias:
             self._ions = []
             self._transitions = {}
@@ -262,6 +273,7 @@ class IonModel(Model):
         self._splines = {}
         self._integrated_model = {}
         self.kfine = None
+        self._boost_cache = None
 
         self._setConstA2Terms()
         self._setLinearATerms()
@@ -308,35 +320,45 @@ class IonModel(Model):
         nkbins = k1.size
         self.kfine = np.linspace(k1, k2, _NSUB_K_, endpoint=False).T
 
-        self._integrated_model['const_a2'] = self._splines['const_a2'].copy()
+        if self.bboost != 0:
+            self._boost_cache = np.exp(self.bboost * self.kfine**2)
+        else:
+            self._boost_cache = 1
+
+        self._integrated_model['const_a2'] = (
+            self._splines['const_a2'].copy() * self._boost_cache)
         self._integrated_model['linear_a'] = {}
         self._integrated_model['oneion_a2'] = {}
         self._integrated_model['twoion_a2'] = {}
 
-        if self.bboost != 0:
-            boost = np.exp((self.bboost / 2) * self.kfine**2)
-        else:
-            boost = 1
+        # if self.bboost != 0:
+        #     boost = np.exp((self.bboost / 2) * self.kfine**2)
+        # else:
+        #     boost = 1
 
         for ionkey, interp in self._splines['linear_a'].items():
             self._integrated_model['linear_a'][ionkey] = (
-                interp(self.kfine) * boost
+                interp(self.kfine) * self._boost_cache
             ).reshape(nkbins, _NSUB_K_).mean(axis=1)
 
-        boost **= 2
+        # boost **= 2
         if self.bboost != 0:
             for ionkey, value in self._splines['const_a2'].items():
                 self._integrated_model['const_a2'][ionkey] = (
-                    value * boost).reshape(nkbins, _NSUB_K_).mean(axis=1)
+                    value * self._boost_cache  # * boost
+                ).reshape(nkbins, _NSUB_K_).mean(axis=1)
 
         for term in ['oneion_a2', 'twoion_a2']:
             for ionkey, interp in self._splines[term].items():
-                self._integrated_model[term][ionkey] = (
-                    interp(self.kfine) * boost
-                ).reshape(nkbins, _NSUB_K_).mean(axis=1)
+                if self.turn_off_x_ion_terms:
+                    self._integrated_model[term][ionkey] = np.zeros(nkbins)
+                else:
+                    self._integrated_model[term][ionkey] = (
+                        interp(self.kfine) * self._boost_cache  # * boost
+                    ).reshape(nkbins, _NSUB_K_).mean(axis=1)
 
     def getCachedModel(self, **kwargs):
-        result = np.ones_like(self.kfine)
+        result = np.zeros_like(self.kfine)
 
         for key in self.names:
             asi = kwargs[key]
@@ -352,6 +374,8 @@ class IonModel(Model):
             m = self._integrated_model['twoion_a2'][f"{key1}-{key2}"]
             result += a1 * a2 * m
 
+        result *= self._boost_cache
+        result += 1.0
         return result
 
     def cache(self, kfine):
@@ -361,6 +385,11 @@ class IonModel(Model):
         self._integrated_model['twoion_a2'] = {}
         self.kfine = kfine
 
+        if self.bboost != 0:
+            self._boost_cache = np.exp(self.bboost * self.kfine**2)
+        else:
+            self._boost_cache = 1
+
         for term in ['linear_a', 'oneion_a2', 'twoion_a2']:
             for ionkey, interp in self._splines[term].items():
                 self._integrated_model[term][ionkey] = interp(kfine)
@@ -369,24 +398,25 @@ class IonModel(Model):
         result = np.zeros_like(k)
 
         if self.bboost != 0:
-            boost = np.exp((self.bboost / 2) * k**2)
+            boost = np.exp(self.bboost * k**2)
         else:
             boost = 1
 
         for key in self.names:
             asi = kwargs[key]
-            result += asi * self._splines['linear_a'][key](k) * boost
+            result += asi * self._splines['linear_a'][key](k)  # * boost
             result += (
                 self._splines['const_a2'][key]
                 + self._splines['oneion_a2'][key](k)
-            ) * asi**2 * boost**2
+            ) * asi**2  # * boost**2
 
         for (key1, key2) in self._name_combos:
             a1 = kwargs[key1]
             a2 = kwargs[key2]
             m = self._splines['twoion_a2'][f"{key1}-{key2}"](k)
-            result += a1 * a2 * m * boost**2
+            result += a1 * a2 * m  # * boost**2
 
+        result *= boost
         result += 1
 
         return result
@@ -398,28 +428,31 @@ class DoubletModel(Model):
         "ew_Si-IV": LIGHT_SPEED * np.log(1402.77 / 1393.76),
         "ew_Mg-II": LIGHT_SPEED * np.log(2802.704 / 2795.528),
         "ew_C-IV": LIGHT_SPEED * np.log(1550.774 / 1548.202),
+        "ew_N-V": LIGHT_SPEED * np.log(1242.80 / 1238.83)
     }
 
-    def __init__(self, model_ions=["C-IV"], doppler=60.0):
+    def __init__(self, model_ions=["C-IV"], k_s=0.009):
         super().__init__()
 
         self.names = [f"ew_{ion}" for ion in model_ions]
         self.initial = {k: 0.1 for k in self.names}
         self.boundary = {k: (-5.0, 5.0) for k in self.names}
         self.param_labels = {
-            "ew_Si-IV": r"\mathrm{EW}_{\mathrm{Si~IV}}",
-            "ew_Mg-II": r"\mathrm{EW}_{\mathrm{Mg~II}}",
-            "ew_C-IV": r"\mathrm{EW}_{\mathrm{C~IV}}"
+            "ew_Si-IV": r"E_{\mathrm{Si~IV}}",
+            "ew_Mg-II": r"E_{\mathrm{Mg~II}}",
+            "ew_C-IV": r"E_{\mathrm{C~IV}}",
+            "ew_N-V": r"E_{\mathrm{N~V}}"
         }
 
-        self.doppler = doppler
+        # self.doppler = (1.0 / k_s)**2 / 2.0
+        self.k_s = k_s
 
         self._cached_model = {}
         self.kfine = None
 
     def cache(self, kfine):
         self.kfine = kfine
-        supp = np.exp(-(kfine * self.doppler)**2)
+        supp = np.exp(-(kfine / self.k_s)**2 / 2.0)
 
         for key in self.names:
             dv = DoubletModel.Transitions[key]
@@ -834,6 +867,21 @@ class LyaP1DArinyoModel(Model):
         self.initial['blya'] = -0.1195977 * zz**3.37681
         self.initial['beta'] = 1.436 * zz**-1.082
 
+    def fittedLinearPowerSpectrumPriors(self):
+        kpiv = LyaP1DArinyoModel.PIVOT_K
+        zpiv = LyaP1DArinyoModel.PIVOT_Z
+        plin_spl = getCambLinearPowerInterp(
+            [zpiv], 3.044, Planck18.meta['n'],
+            Planck18.Odm0, Planck18.Ob0,
+            Planck18.h * 100.0)
+        k = np.logspace(np.log10(0.05), np.log10(30), 500)
+        lnpl = np.log(plin_spl(zpiv, k))
+        pfit = np.polyfit(np.log(k / kpiv), lnpl, deg=2)
+        alpha_p = 2.0 * pfit[0]
+        n_p = pfit[1]
+        self._Delta2_p = kpiv**3 * np.exp(pfit[-1]) / 2 / np.pi**2
+        self.initial.update({'n_p': n_p, 'alpha_p': alpha_p})
+
     def cache(self, kedges, z):
         assert isinstance(kedges, tuple)
 
@@ -972,6 +1020,7 @@ class CombinedModel(Model):
     def __init__(
             self, syst_dtype_names, use_camb=False,
             model_ions=["Si-II", "Si-III", "O-I"], per_transition_bias=False,
+            turn_off_x_ion_terms=False,
             doublet_ions=['C-IV'],
             hcd_systems=['lDLA', 'sDLA', 'subDLA', 'LLS'],
             xi1d=False
@@ -980,7 +1029,8 @@ class CombinedModel(Model):
         self._models = {
             'lya': LyaP1DArinyoModel(use_camb),
             'ion': IonModel(
-                model_ions=model_ions, per_transition_bias=per_transition_bias
+                model_ions=model_ions, per_transition_bias=per_transition_bias,
+                turn_off_x_ion_terms=turn_off_x_ion_terms
             ),
             # 'reso': ResolutionModel(add_reso_bias, add_var_reso),
             # 'noise': NoiseModel()
@@ -1034,6 +1084,10 @@ class CombinedModel(Model):
     def fixCosmology(self, **kwargs):
         self._models['lya'].fixCosmology(**kwargs)
 
+    def fittedLinearPowerSpectrumPriors(self):
+        self._models['lya'].fittedLinearPowerSpectrumPriors()
+        self.initial.update(self._models['lya'].initial)
+
     def addPolynomialXi1dTerms(self, n):
         self._models['poly'] = PolynomialModel(n)
         varr = (np.arange(self.ndata) * self._dv) / 5000.
@@ -1050,6 +1104,7 @@ class CombinedModel(Model):
 
     def setLyaPrior(self, which_prior):
         self._models['lya'].setPriors(which_prior)
+
     # def setNoiseModel(self, p_noise):
     #     self._models['noise'].cache(p_noise)
 
