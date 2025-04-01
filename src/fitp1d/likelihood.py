@@ -49,6 +49,7 @@ class P1DLikelihood():
             self, fname_power, use_camb=False, use_simple_lya_model=False,
             model_ions=["Si-II", "Si-III", "O-I"], doublet_ions=['C-IV'],
             turn_off_x_ion_terms=False,
+            add_reso_bias=False, add_reso_var=False,
             fname_cov=None, cov=None, forecast=False,
             fit_scaling_systematics=False,
             fit_poly_order=-1,
@@ -64,7 +65,8 @@ class P1DLikelihood():
             syst, use_camb, model_ions=model_ions,
             turn_off_x_ion_terms=turn_off_x_ion_terms,
             doublet_ions=doublet_ions,
-            hcd_systems=hcd_systems)
+            hcd_systems=hcd_systems,
+            add_reso_bias=add_reso_bias, add_reso_var=add_reso_var)
         if use_simple_lya_model:
             self.p1dmodel.useSimpleLyaModel()
 

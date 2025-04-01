@@ -487,7 +487,7 @@ class ResolutionModel(Model):
             self.names.append("b_reso")
             self.boundary['b_reso'] = (-0.5, 0.5)
             self.initial['b_reso'] = 0
-            self.param_labels['b_reso'] = r"b_R"
+            self.param_labels['b_reso'] = r"\alpha_R"
 
         if add_variance:
             self.names.append("var_reso")
@@ -508,7 +508,7 @@ class ResolutionModel(Model):
         self._cached_model = {}
 
         if "b_reso" in self.names:
-            self._cached_model["b_reso"] = -(kfine * rkms)**2
+            self._cached_model["b_reso"] = (kfine * rkms)**2
 
         if "var_reso" in self.names:
             self._cached_model["var_reso"] = (kfine * rkms)**4 / 2
@@ -772,7 +772,7 @@ class LyaP1DArinyoModel(Model):
         }
 
         self.prior = {
-            'beta': 0.1, 'q1': 0.1, 'kvav': 0.11, 'cv': 0.11, 'bv': 0.15,
+            'beta': 0.1, 'q1': 0.1, 'kvav': 0.11, 'cv': 0.1, 'bv': 0.1,
             'kp': 1.0, 'Ode0': 0.001, 'H0': 0.42
         }
 
@@ -1023,6 +1023,7 @@ class CombinedModel(Model):
             turn_off_x_ion_terms=False,
             doublet_ions=['C-IV'],
             hcd_systems=['lDLA', 'sDLA', 'subDLA', 'LLS'],
+            add_reso_bias=False, add_reso_var=False,
             xi1d=False
     ):
         super().__init__()
@@ -1032,7 +1033,6 @@ class CombinedModel(Model):
                 model_ions=model_ions, per_transition_bias=per_transition_bias,
                 turn_off_x_ion_terms=turn_off_x_ion_terms
             ),
-            # 'reso': ResolutionModel(add_reso_bias, add_var_reso),
             # 'noise': NoiseModel()
         }
 
@@ -1041,6 +1041,9 @@ class CombinedModel(Model):
 
         if hcd_systems:
             self._models['hcd'] = HcdModel(hcd_systems)
+
+        if add_reso_bias or add_reso_var:
+            self._models['reso'] = ResolutionModel(add_reso_bias, add_reso_var)
 
         self._xi1d = xi1d
         self._syst_models = []
@@ -1131,8 +1134,10 @@ class CombinedModel(Model):
         if 'hcd' in self._models:
             self._models['hcd'].cache(kfine, z)
 
-        # rkms = LIGHT_SPEED * 0.8 / (1 + z) / LYA_WAVELENGTH
-        # self._models['reso'].cache(kfine, rkms)
+        if 'reso' in self._models:
+            rkms = LIGHT_SPEED * 0.8 / (1 + z) / LYA_WAVELENGTH
+            self._models['reso'].cache(kfine, rkms)
+
         if 'poly' in self._models:
             Rkms = LIGHT_SPEED * 0.8 / (1 + z) / LYA_WAVELENGTH
             # a = evaluatePD13Lorentz(PD13_PIVOT_K, z, *PDW_FIT_PARAMETERS)
@@ -1152,10 +1157,12 @@ class CombinedModel(Model):
         if 'hcd' in self._models:
             result *= self._models['hcd'].getCachedModel(**kwargs)
 
+        if 'reso' in self._models:
+            result *= self._models['reso'].getCachedModel(**kwargs)
+
         if 'doublet' in self._models:
             result += self._models['doublet'].getCachedModel(**kwargs)
 
-        # result *= self._models['reso'].getCachedModel(**kwargs)
         result = result.reshape(self.ndata, _NSUB_K_).mean(axis=1)
         result += self._additive_corrections
         for name in self._syst_models:
