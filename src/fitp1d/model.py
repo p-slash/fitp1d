@@ -225,10 +225,12 @@ class IonModel(Model):
     def __init__(
             self, model_ions=["Si-II", "Si-III"], vmax=0,
             per_transition_bias=False, doppler_boost=-(1.0 / 0.009)**2 / 2.0,
-            turn_off_x_ion_terms=False
+            turn_off_x_ion_terms=False, free_boost=False
     ):
         super().__init__()
         self.turn_off_x_ion_terms = turn_off_x_ion_terms
+        self.free_boost = free_boost
+
         if per_transition_bias:
             self._ions = []
             self._transitions = {}
@@ -258,6 +260,7 @@ class IonModel(Model):
             self._pivots = IonModel.PivotF.copy()
 
         self.names = [f"a_{ion}" for ion in self._ions]
+        self._ion_names = self.names.copy()
         self._karr = np.linspace(0, 1, int(1e6))
         self.bboost = doppler_boost
         self._name_combos = []
@@ -274,6 +277,13 @@ class IonModel(Model):
         self._integrated_model = {}
         self.kfine = None
         self._boost_cache = None
+
+        if self.free_boost:
+            assert (self.bboost != 0)
+            self.names += ['alpha_ion']
+            self.param_labels["alpha_ion"] = r"\alpha_s"
+            self.boundary["alpha_ion"] = (-5.0, 5.0)
+            self.initial["alpha_ion"] = 1.0
 
         self._setConstA2Terms()
         self._setLinearATerms()
@@ -316,6 +326,7 @@ class IonModel(Model):
         return vseps
 
     def integrate(self, kedges):
+        raise Exception("Unmaintained")
         k1, k2 = kedges
         nkbins = k1.size
         self.kfine = np.linspace(k1, k2, _NSUB_K_, endpoint=False).T
@@ -360,7 +371,7 @@ class IonModel(Model):
     def getCachedModel(self, **kwargs):
         result = np.zeros_like(self.kfine)
 
-        for key in self.names:
+        for key in self._ion_names:
             asi = kwargs[key]
             result += asi * self._integrated_model['linear_a'][key]
             result += (
@@ -374,7 +385,12 @@ class IonModel(Model):
             m = self._integrated_model['twoion_a2'][f"{key1}-{key2}"]
             result += a1 * a2 * m
 
-        result *= self._boost_cache
+        if self.free_boost:
+            bboost = np.exp(kwargs["alpha_ion"] * self._boost_cache)
+        else:
+            bboost = self._boost_cache
+
+        result *= bboost
         result += 1.0
         return result
 
@@ -385,7 +401,9 @@ class IonModel(Model):
         self._integrated_model['twoion_a2'] = {}
         self.kfine = kfine
 
-        if self.bboost != 0:
+        if self.free_boost:
+            self._boost_cache = self.bboost * self.kfine**2
+        elif self.bboost != 0:
             self._boost_cache = np.exp(self.bboost * self.kfine**2)
         else:
             self._boost_cache = 1
@@ -397,12 +415,14 @@ class IonModel(Model):
     def evaluate(self, k, **kwargs):
         result = np.zeros_like(k)
 
-        if self.bboost != 0:
+        if self.free_boost:
+            boost = np.exp(kwargs["alpha_ion"] * self.bboost * k**2)
+        elif self.bboost != 0:
             boost = np.exp(self.bboost * k**2)
         else:
-            boost = 1
+            boost = 1.0
 
-        for key in self.names:
+        for key in self._ion_names:
             asi = kwargs[key]
             result += asi * self._splines['linear_a'][key](k)  # * boost
             result += (
@@ -1020,7 +1040,7 @@ class CombinedModel(Model):
     def __init__(
             self, syst_dtype_names, use_camb=False,
             model_ions=["Si-II", "Si-III", "O-I"], per_transition_bias=False,
-            turn_off_x_ion_terms=False,
+            turn_off_x_ion_terms=False, free_ion_boost=False,
             doublet_ions=['C-IV'],
             hcd_systems=['lDLA', 'sDLA', 'subDLA', 'LLS'],
             add_reso_bias=False, add_reso_var=False,
@@ -1031,7 +1051,8 @@ class CombinedModel(Model):
             'lya': LyaP1DArinyoModel(use_camb),
             'ion': IonModel(
                 model_ions=model_ions, per_transition_bias=per_transition_bias,
-                turn_off_x_ion_terms=turn_off_x_ion_terms
+                turn_off_x_ion_terms=turn_off_x_ion_terms,
+                free_boost=free_ion_boost
             ),
             # 'noise': NoiseModel()
         }
