@@ -100,10 +100,10 @@ class DetailedData():
         w &= (self.data_table['kc'] >= kmin) & (self.data_table['kc'] <= kmax)
         w &= (self.data_table['e_total'] > 0)
 
-        result = self.data_table[w]
+        result = self.data_table[w].copy()
 
         if self.cov is not None:
-            cov = self.cov[:, w][w, :]
+            cov = self.cov[:, w][w, :].copy()
         else:
             cov = None
 

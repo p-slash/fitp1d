@@ -172,8 +172,9 @@ class P1DLikelihood():
 
     def fitDataBin(
             self, z, kmin=1e-3, kmax=None, print_info=False,
-            interm_fix_keys=[]
+            interm_fix_keys=[], auto_inflate_errs=False
     ):
+        print(f"Fitting redshift bin {z:.1f}")
         self.setupZbin(z, kmin, kmax)
 
         if interm_fix_keys:
@@ -187,12 +188,35 @@ class P1DLikelihood():
                 self._mini.migrad()
 
         self._mini.migrad()
+        chi2 = self._mini.fval
+        ndof = self._data.size - self._mini.nfit
+        chi2_nu = chi2 / ndof
+        print(f"Chi2 / dof= {chi2:.1f} / {ndof:d} = {chi2_nu:.2f}")
 
         if print_info:
-            chi2 = self._mini.fval
-            ndof = self._data.size - self._mini.nfit
-            print(f"Chi2 / dof= {chi2:.1f} / {ndof:d}")
             print(self._mini)
+
+        if auto_inflate_errs and chi2_nu > 1.0:
+            print("High chi-square auto inflating diagonals.")
+            if self._cov is None:
+                self._invcov = self._data['e_stat']**-2 / chi2_nu
+            else:
+                di = self._cov.diagonal()
+                self._cov += ((chi2_nu - 1.0) / 2.0) * np.diag(di)
+                self._invcov = np.linalg.inv(self._cov)
+
+            self._mini.migrad()
+
+        chi2 = self._mini.fval
+        ndof = self._data.size - self._mini.nfit
+        chi2_nu_2 = chi2 / ndof
+
+        if print_info:
+            print(f"Chi2 / dof= {chi2:.1f} / {ndof:d} = {chi2_nu_2:.2f}")
+            print(self._mini)
+            print("------------------------------")
+
+        return chi2_nu
 
     def chi2(self, *args):
         kwargs = {par: args[i] for i, par in enumerate(self.names)}
@@ -206,7 +230,7 @@ class P1DLikelihood():
         if self._cov is None:
             chi2 += np.sum(diff**2 * self._invcov)
         else:
-            chi2 += diff @ self._invcov @ diff
+            chi2 += diff.dot(self._invcov.dot(diff))
 
         return chi2
 
