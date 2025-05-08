@@ -563,15 +563,19 @@ class NoiseModel(Model):
 
 class HcdModel(Model):
     coeffs = {
-        'lDLA': [0.8633, 430.0, 0.3339],
-        'sDLA': [1.1415, 163.0, 0.6572],
-        'subDLA': [1.5083, 81.4, 0.8667],
-        'LLS': [2.2001, 36.449, 0.9849]
+        'lDLA': [0.8633, 0.2943, 430.0, -0.4964, 0.3339, 0.4653],
+        'sDLA': [1.1415, 0.0937, 163.0, 0.0126, 0.6572, 0.1169],
+        'subDLA': [1.5083, 0.0994, 81.4, -0.2287, 0.8667, 0.0196],
+        'LLS': [2.2001, 0.0134, 36.449, -0.0674, 0.9849, -0.0631]
     }
     gamma = -3.55
 
-    def eval(k, z, a, b, c):
-        amp = np.power((1.0 + z) / 3.0, HcdModel.gamma)
+    def eval(k, z, a0, a1, b0, b1, c0, c1):
+        zz = (1.0 + z) / 3.0
+        amp = np.power(zz, HcdModel.gamma)
+        a = a0 * zz**a1
+        b = b0 * zz**b1
+        c = c0 * zz**c1
         den = a * np.exp(b * k) - 1
         return c + amp * den**-2
 
