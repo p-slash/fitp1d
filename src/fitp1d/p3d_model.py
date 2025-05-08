@@ -2,7 +2,7 @@ import numpy as np
 from astropy.cosmology import Planck18
 
 from fitp1d.model import Model, LyaP1DSimpleModel, LYA_WAVELENGTH
-from fitp1d.xcmb import MyPlinInterp
+from fitp1d.basic_cosmo import MyPlinInterp
 
 cosmo_package = None
 
