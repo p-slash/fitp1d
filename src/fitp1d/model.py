@@ -783,9 +783,21 @@ class LyaP1DArinyoModel(Model):
     PIVOT_K = 0.7  # Mpc^-1
     PIVOT_Z = 3.0
 
-    def __init__(self, use_camb, nkperp=500, which_prior="accel2"):
+    def __init__(
+            self, use_camb, use_cosmopower=False, cp_model_dir=None,
+            nkperp=500, which_prior="accel2"
+    ):
         super().__init__()
         self._use_camb = use_camb
+        self._use_cosmopower = use_cosmopower
+        if use_cosmopower:
+            assert cp_model_dir
+            import cosmopower
+            self._cp_emulator = cosmopower.cosmopower_NN(
+                restore=True, restore_filename=f'{cp_model_dir}/PKLIN_NN')
+            self._cp_lnk = np.log(10.0) * np.log10(
+                np.loadtxt(f"{cp_model_dir}/k_modes.txt"))
+
         self.names = ['blya', 'beta', 'q1', 'kvav', 'cv', 'bv', 'kp']
         self.setPriors(which_prior)
 
@@ -920,8 +932,42 @@ class LyaP1DArinyoModel(Model):
 
         # shape = (self._kperp.shape[0], k1.size, _NSUB_K_)
 
-    def newCambInterp(self, **kwargs):
+    def setPlinInterp(self, **kwargs):
+        if not self._use_cosmopower:
+            self.setCambInterpolator(**kwargs)
+            return
+
+        ln10As, ns = kwargs['ln10As'], kwargs['ns']
+        Ode0, H0 = kwargs['Ode0'], kwargs['H0']
+
+        h = H0 / 100.
+        delta_Ode0 = Ode0 - Planck18.Ode0
+
+        emu_params = {
+            'omega_b': [Planck18.Ob0 * h**2],
+            'omega_cdm': [(Planck18.Odm0 - delta_Ode0) * h**2],
+            'h': [h], 'n_s': [ns], 'ln10^{10}A_s': [ln10As], 'z': [self.z]
+        }
+
+        pk = np.log(10.0) * self._cp_emulator.predictions_np(emu_params)[0]
+        print("Cosmopower pk shape:", pk.shape)
+
+        # Add extrapolation data points as done in camb
+        logextrap = np.log(2 * LyaP1DArinyoModel.CAMB_KMAX)
+        delta = logextrap - self._cp_lnk[-1]
+
+        pk0 = pk[-1]
+        dlog = (pk0 - pk[-2]) / (self._cp_lnk[-1] - self._cp_lnk[-2])
+        pk = np.append(pk, [pk0 + dlog * delta * 0.9, pk0 + dlog * delta])
+        khs = np.append(self._cp_lnk, [logextrap - delta * 0.1, logextrap])
+
+        self._cosmo_interp = CubicSpline(khs, pk)
+
+    def setCambInterpolator(self, **kwargs):
         H0, Ode0 = kwargs['H0'], kwargs['Ode0']
+        delta_Ode0 = Ode0 - Planck18.Ode0
+        Om0 = Planck18.Om0 - delta_Ode0
+
         if not self._use_camb:
             zp = LyaP1DArinyoModel.PIVOT_Z
             lnkstar = np.log(
@@ -930,7 +976,7 @@ class LyaP1DArinyoModel(Model):
                 # / (getHubbleZ(self.z, H0, Ode0) / (1 + self.z))
             )
 
-            grow = mycosmo.getLinearGrowth(zp, self.z, 1.0 - Ode0)
+            grow = mycosmo.getLinearGrowth(zp, self.z, Om0)
 
             self._cosmo_interp = functools.partial(
                 simpleLinearPower,
@@ -940,19 +986,20 @@ class LyaP1DArinyoModel(Model):
 
         h = H0 / 100.
 
+        omch2 = (Planck18.Odm0 - delta_Ode0) * h**2
         camb_params = camb.set_params(
             redshifts=[self.z],
             WantCls=False, WantScalars=False,
             WantTensors=False, WantVectors=False,
             WantDerivedParameters=False,
             WantTransfer=True, kmax=50.0,
-            omch2=(1 - Ode0 - Planck18.Ob0) * h**2,
+            omch2=omch2,
             ombh2=Planck18.Ob0 * h**2,
             omk=0.,
             H0=H0,
             ns=kwargs['ns'],
             As=np.exp(kwargs['ln10As']) * 1e-10,
-            mnu=0.0
+            mnu=0.06
         )
         camb_results = camb.get_results(camb_params)
 
@@ -981,7 +1028,7 @@ class LyaP1DArinyoModel(Model):
                 continue
             _cosmo_params[key] = self.initial[key]
 
-        self.newCambInterp(**_cosmo_params)
+        self.setPlinInterp(**_cosmo_params)
         self.newKandP(None, **_cosmo_params)
         self.fixedCosmology = True
 
@@ -1001,7 +1048,7 @@ class LyaP1DArinyoModel(Model):
 
     def evaluateP3D(self, k1d_skm=None, **kwargs):
         if not self.fixedCosmology:
-            self.newCambInterp(**kwargs)
+            self.setPlinInterp(**kwargs)
         if not self.fixedCosmology or k1d_skm is not None:
             self.newKandP(k1d_skm, **kwargs)
 
@@ -1042,7 +1089,8 @@ class CombinedModel(Model):
             self.prior |= M.prior
 
     def __init__(
-            self, syst_dtype_names, use_camb=False,
+            self, syst_dtype_names, use_camb=False, use_cosmopower=False,
+            cp_model_dir=None,
             model_ions=["Si-II", "Si-III", "O-I"], per_transition_bias=False,
             turn_off_x_ion_terms=False, free_ion_boost=False,
             doublet_ions=['C-IV'],
@@ -1052,7 +1100,7 @@ class CombinedModel(Model):
     ):
         super().__init__()
         self._models = {
-            'lya': LyaP1DArinyoModel(use_camb),
+            'lya': LyaP1DArinyoModel(use_camb, use_cosmopower, cp_model_dir),
             'ion': IonModel(
                 model_ions=model_ions, per_transition_bias=per_transition_bias,
                 turn_off_x_ion_terms=turn_off_x_ion_terms,
@@ -1098,8 +1146,11 @@ class CombinedModel(Model):
         self._models['lya'] = LyaP1DSimpleModel()
         self._setAttr()
 
-    def useArinyoLyaModel(self, use_camb):
-        self._models['lya'] = LyaP1DArinyoModel(use_camb)
+    def useArinyoLyaModel(
+            self, use_camb, use_cosmopower=False, cp_model_dir=None
+    ):
+        self._models['lya'] = LyaP1DArinyoModel(
+            use_camb, use_cosmopower, cp_model_dir)
         self._setAttr()
 
     def setFiducialCorrectionModel(self, *args):
