@@ -51,6 +51,7 @@ class P1DLikelihood():
             use_simple_lya_model=False,
             model_ions=["Si-II", "Si-III", "O-I"], doublet_ions=['C-IV'],
             turn_off_x_ion_terms=False, free_ion_boost=False,
+            per_transition_bias=False,
             add_reso_bias=False, add_reso_var=False,
             fname_cov=None, cov=None, forecast=False,
             fit_scaling_systematics=False,
@@ -65,7 +66,8 @@ class P1DLikelihood():
             syst = []
         self.p1dmodel = fitp1d.model.CombinedModel(
             syst, use_camb, use_cosmopower, cp_model_dir,
-            model_ions=model_ions, turn_off_x_ion_terms=turn_off_x_ion_terms,
+            model_ions=model_ions, per_transition_bias=per_transition_bias,
+            turn_off_x_ion_terms=turn_off_x_ion_terms,
             free_ion_boost=free_ion_boost, doublet_ions=doublet_ions,
             hcd_systems=hcd_systems,
             add_reso_bias=add_reso_bias, add_reso_var=add_reso_var)
@@ -199,24 +201,26 @@ class P1DLikelihood():
             print(self._mini)
 
         if auto_inflate_errs and chi2_nu > 1.0:
-            print("High chi-square auto inflating diagonals.")
             if self._cov is None:
                 self._invcov = self._data['e_stat']**-2 / chi2_nu
+                f = chi2_nu
             else:
+                f = ((chi2_nu - 1.0) / 2.0)
                 di = self._cov.diagonal()
-                self._cov += ((chi2_nu - 1.0) / 2.0) * np.diag(di)
+                self._cov += f * np.diag(di)
                 self._invcov = np.linalg.inv(self._cov)
 
+            print(f"High chi-square auto inflating diagonals by {f:.4f}")
             self._mini.migrad()
 
         chi2 = self._mini.fval
         ndof = self._data.size - self._mini.nfit
         chi2_nu_2 = chi2 / ndof
 
+        print(f"Chi2 / dof= {chi2:.1f} / {ndof:d} = {chi2_nu_2:.2f}")
         if print_info:
-            print(f"Chi2 / dof= {chi2:.1f} / {ndof:d} = {chi2_nu_2:.2f}")
             print(self._mini)
-            print("------------------------------")
+        print("------------------------------")
 
         return chi2_nu
 
