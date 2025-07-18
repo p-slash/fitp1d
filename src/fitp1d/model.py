@@ -3,6 +3,7 @@ import itertools
 
 from astropy.cosmology import Planck18
 import camb
+import cosmopower
 import numpy as np
 from scipy.interpolate import CubicSpline
 
@@ -111,7 +112,12 @@ class IonModel(Model):
         "Si-IV": [(1393.76, 0.513), (1402.77, 0.255)],
         "O-I": [(1302.168, 0.0520)],
         "C-II": [(1334.5323, 0.129)],
-        "C-IV": [(1548.202, 0.190), (1550.774, 0.0952)]
+        "C-IV": [(1548.202, 0.190), (1550.774, 0.0952)],
+        "Fe-II": [
+            (1608.451, 0.0591), (2343.495, 0.114), (2382.037, 0.32),
+            (2373.735, 0.0359), (2585.876, 0.0717), (2599.395, 0.239)
+        ],
+        "Mg-II": [(2795.528, 0.608), (2802.704, 0.303)]
     }
 
     # PivotF = {
@@ -124,16 +130,22 @@ class IonModel(Model):
     }
     VMax = LIGHT_SPEED * np.log(1180. / 1050.) / 2.
 
+    def _getPivotScaling(self, ion, wave, fn):
+        if self.per_transition_bias:
+            return 1
+        lpivot, fpivot = self._pivots[ion]
+        fpivot *= lpivot
+        r = fn * wave / fpivot
+        return r
+
     def _setConstA2Terms(self):
         self._splines['const_a2'] = {}
         for ion in self._ions:
             transitions = self._transitions[ion]
             self._splines['const_a2'][f"a_{ion}"] = 0
-            lpivot, fpivot = self._pivots[ion]
-            fpivot *= lpivot
 
             for wave, fn in transitions:
-                r = fn * wave / fpivot
+                r = self._getPivotScaling(ion, wave, fn)
                 self._splines['const_a2'][f"a_{ion}"] += r**2
 
     def _setLinearATerms(self):
@@ -142,8 +154,6 @@ class IonModel(Model):
         for ion in self._ions:
             transitions = self._transitions[ion]
             result = np.zeros(self._karr.size)
-            lpivot, fpivot = self._pivots[ion]
-            fpivot *= lpivot
 
             for wave, fn in transitions:
                 vn = np.abs(LIGHT_SPEED * np.log(LYA_WAVELENGTH / wave))
@@ -151,7 +161,7 @@ class IonModel(Model):
                 if vn > self._vmax:
                     continue
 
-                r = fn * wave / fpivot
+                r = self._getPivotScaling(ion, wave, fn)
                 result += 2 * r * np.cos(self._karr * vn)
 
                 print(f"_setLinearATerms({ion}, {wave}): {vn:.0f}")
@@ -164,8 +174,6 @@ class IonModel(Model):
         for ion in self._ions:
             transitions = self._transitions[ion]
             result = np.zeros(self._karr.size)
-            lpivot, fpivot = self._pivots[ion]
-            fpivot *= lpivot
 
             if self.turn_off_x_ion_terms:
                 self._splines['oneion_a2'][f"a_{ion}"] = lambda k: 0
@@ -177,7 +185,8 @@ class IonModel(Model):
                 if vmn > self._vmax:
                     continue
 
-                r = (p1[0] * p1[1] / fpivot) * (p2[0] * p2[1] / fpivot)
+                r = self._getPivotScaling(ion, p1[0], p1[1])
+                r *= self._getPivotScaling(ion, p2[0], p2[1])
                 result += 2 * r * np.cos(self._karr * vmn)
 
                 print(f"_setOneionA2Terms({ion}, {p1[0]}, {p2[0]}): {vmn:.0f}")
@@ -193,10 +202,6 @@ class IonModel(Model):
             all_zero = True
             t1 = self._transitions[i1]
             t2 = self._transitions[i2]
-            lp1, fp1 = self._pivots[i1]
-            lp2, fp2 = self._pivots[i2]
-            fp1 *= lp1
-            fp2 *= lp2
 
             if self.turn_off_x_ion_terms:
                 i2a2[f"a_{i1}-a_{i2}"] = lambda k: 0
@@ -208,7 +213,8 @@ class IonModel(Model):
                 if vmn > self._vmax:
                     continue
 
-                r = (p1[0] * p1[1] / fp1) * (p2[0] * p2[1] / fp2)
+                r = self._getPivotScaling(i1, p1[0], p1[1])
+                r *= self._getPivotScaling(i2, p2[0], p2[1])
                 result += 2 * r * np.cos(self._karr * vmn)
                 all_zero = False
                 print(f"_setTwoionA2Terms({i1},"
@@ -230,6 +236,12 @@ class IonModel(Model):
         super().__init__()
         self.turn_off_x_ion_terms = turn_off_x_ion_terms
         self.free_boost = free_boost
+        self.per_transition_bias = per_transition_bias
+
+        if vmax > 0:
+            self._vmax = vmax
+        else:
+            self._vmax = IonModel.VMax
 
         if per_transition_bias:
             self._ions = []
@@ -242,9 +254,12 @@ class IonModel(Model):
                     continue
 
                 for wave, fp in transitions:
+                    vn = np.abs(LIGHT_SPEED * np.log(LYA_WAVELENGTH / wave))
+                    if vn > self._vmax:
+                        continue
+
                     key = f"{ion} ({wave:.0f})"
                     self._transitions[key] = [(wave, fp)]
-                    self._pivots[key] = IonModel.PivotF[key]
                     self._ions.append(key)
                     self.param_labels[f"a_{key}"] = f"a-{key}"
         else:
@@ -264,11 +279,6 @@ class IonModel(Model):
         self._karr = np.linspace(0, 1, int(1e6))
         self.bboost = doppler_boost
         self._name_combos = []
-
-        if vmax > 0:
-            self._vmax = vmax
-        else:
-            self._vmax = IonModel.VMax
 
         self.initial = {k: 1e-2 for k in self.names}
         self.boundary = {k: (-2, 2) for k in self.names}
@@ -290,10 +300,13 @@ class IonModel(Model):
         self._setOneionA2Terms()
         self._setTwoionA2Terms()
 
-    def getAllVelocitySeparations(self, w1=0.0):
+    def getAllVelocitySeparations(self, w1=0.0, exclude_ions=[]):
         vseps = {}
 
         for ion, transitions in IonModel.Transitions.items():
+            if ion in exclude_ions:
+                continue
+
             for wave, fn in transitions:
                 if wave < w1 or LYA_WAVELENGTH < w1:
                     continue
@@ -303,6 +316,9 @@ class IonModel(Model):
                     LIGHT_SPEED * np.log(LYA_WAVELENGTH / wave))
 
         for ion, transitions in IonModel.Transitions.items():
+            if ion in exclude_ions:
+                continue
+
             for p1, p2 in itertools.combinations(transitions, 2):
                 if p1[0] < w1 or p2[0] < w1:
                     continue
@@ -311,6 +327,7 @@ class IonModel(Model):
                 vseps[key] = np.abs(LIGHT_SPEED * np.log(p2[0] / p1[0]))
 
         ions = list(IonModel.Transitions.keys())
+        ions = [_ for _ in ions if _ not in exclude_ions]
         for i1, i2 in itertools.combinations(ions, 2):
             t1 = IonModel.Transitions[i1]
             t2 = IonModel.Transitions[i2]
@@ -791,12 +808,12 @@ class LyaP1DArinyoModel(Model):
         self._use_camb = use_camb
         self._use_cosmopower = use_cosmopower
         if use_cosmopower:
-            assert cp_model_dir
-            import cosmopower
             self._cp_emulator = cosmopower.cosmopower_NN(
                 restore=True, restore_filename=f'{cp_model_dir}/PKLIN_NN')
             self._cp_lnk = np.log(10.0) * np.log10(
                 np.loadtxt(f"{cp_model_dir}/k_modes.txt"))
+        else:
+            self._cp_emulator, self._cp_lnk = None, None
 
         self.names = ['blya', 'beta', 'q1', 'kvav', 'cv', 'bv', 'kp']
         self.setPriors(which_prior)
@@ -830,7 +847,7 @@ class LyaP1DArinyoModel(Model):
             self._cosmo_names = ['ln10As', 'ns', 'Ode0', 'H0']
             self.initial |= {'ln10As': 3.044, 'ns': Planck18.meta['n']}
             self.param_labels |= {
-                "ln10As": r"\ln(10^{10} A_s)", "ns": r"$n_s$"
+                "ln10As": r"\ln(10^{10} A_s)", "ns": r"n_s"
                 # , "mnu": r"$\sum m_\nu$ [$10^{-2}~$eV]"
             }
             self.boundary |= {'ln10As': (2., 4.), 'ns': (0.94, 1.)}
@@ -950,7 +967,6 @@ class LyaP1DArinyoModel(Model):
         }
 
         pk = np.log(10.0) * self._cp_emulator.predictions_np(emu_params)[0]
-        print("Cosmopower pk shape:", pk.shape)
 
         # Add extrapolation data points as done in camb
         logextrap = np.log(2 * LyaP1DArinyoModel.CAMB_KMAX)
