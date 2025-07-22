@@ -95,6 +95,35 @@ class DetailedData():
         assert cov.shape[1] == self.size
         self.cov = cov.copy()
 
+    def removeSystFromCov(self, col):
+        col = f"e_{col}_syst"
+        v = self.data_table[col]
+
+        if "add" in col:
+            self.cov -= np.diag(v**2)
+            return
+
+        M = np.zeros_like(self.cov)
+        for z in self.z_bins:
+            w = np.isclose(z, self.data_table['z'])
+            vv = np.zeros_like(v)
+            vv[w] = v[w]
+            M += np.outer(vv, vv)
+
+        self.cov -= M
+
+    def addCorrelatedSystToCov(self, vec):
+        assert(vec.size == self.size)
+        M = np.zeros_like(self.cov)
+
+        for z in self.z_bins:
+            w = np.isclose(z, self.data_table['z'])
+            vv = np.zeros_like(vec)
+            vv[w] = vec[w]
+            M += np.outer(vv, vv)
+
+        self.cov += M
+
     def getZBinVals(self, z, kmin=0, kmax=10):
         w = np.isclose(self.data_table['z'], z)
         w &= (self.data_table['kc'] >= kmin) & (self.data_table['kc'] <= kmax)
