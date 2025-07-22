@@ -24,6 +24,23 @@ def getLinearGrowth(z1, z2, Om0, Or0=Planck18.Ogamma0):
     return (1 + integ1 / norm) * efunc(z2, Om0, Or0) * invEfunc(z1, Om0, Or0)
 
 
+def getLinearGrowthMasai(z, Om0):
+    # https://arxiv.org/abs/1012.2671
+    a = 1.0 / (1 + z)
+    x = (1 - Om0) / Om0 * a**3
+
+    b3 = 0.005355
+    b2 = 0.3064
+    b1 = 1.175
+
+    c3 = 0.1530
+    c2 = 1.021
+    c1 = 1.857
+    bs = [b3, b2, b1, 1.0]
+    cs = [c3, c2, c1, 1.0]
+    return a * np.sqrt(1 + x) * np.polyval(bs, x) / np.polyval(cs, x)
+
+
 def getMpc2Kms(zarr, **kwargs):
     h = kwargs['h']
     Om0 = (kwargs['omega_b'] + kwargs['omega_cdm']) / h**2
