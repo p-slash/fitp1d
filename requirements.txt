@@ -1,16 +1,17 @@
 numpy~=1.24
-numba~=0.57
-scipy~=1.10
+scipy~=1.13
 astropy~=5.2
 healpy~=1.16
 iminuit~=2.18
-zeus-mcmc~=2.5
-emcee~=3.1
 getdist~=1.4
 matplotlib~=3.7
 tqdm~=4.64
-nautilus-sampler
 fitsio
 camb
-mpi4py
-h5py
+numba
+
+# mpi4py
+# h5py
+# zeus-mcmc~=2.5
+# emcee~=3.1
+# nautilus-sampler
