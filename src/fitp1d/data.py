@@ -41,7 +41,9 @@ class DetailedData():
     def _check_keys(self):
         data_keys = self.data_table.dtype.names
         for key in data_keys:
-            if key not in DetailedData._expected_keys:
+            w1 = key not in DetailedData._expected_keys
+            w2 = key.startswith('e_') and key.endswith('_syst')
+            if w1 and not w2:
                 print(f"WARNING: Column {key} in file is not expected.")
 
         for key in DetailedData._expected_keys:
