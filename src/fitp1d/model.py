@@ -237,6 +237,7 @@ class IonModel(Model):
         self.turn_off_x_ion_terms = turn_off_x_ion_terms
         self.free_boost = free_boost
         self.per_transition_bias = per_transition_bias
+        self.integrate = 0
 
         if vmax > 0:
             self._vmax = vmax
@@ -409,14 +410,23 @@ class IonModel(Model):
 
         result *= bboost
         result += 1.0
+
+        if self.integrate > 1:
+            n = self.kfine.size // self.integrate
+            result = result.reshape(n, self.integrate).mean(axis=1)
+
         return result
 
-    def cache(self, kfine):
+    def cache(self, kfine, integrate=0):
         self._integrated_model['const_a2'] = self._splines['const_a2'].copy()
         self._integrated_model['linear_a'] = {}
         self._integrated_model['oneion_a2'] = {}
         self._integrated_model['twoion_a2'] = {}
         self.kfine = kfine
+        self.integrate = integrate
+        if self.integrate > 1:
+            n = self.kfine.size // integrate
+            assert n * integrate == self.kfine.size
 
         if self.free_boost:
             self._boost_cache = self.bboost * self.kfine**2
@@ -487,13 +497,21 @@ class DoubletModel(Model):
         self._cached_model = {}
         self.kfine = None
 
-    def cache(self, kfine):
+    def cache(self, kfine, integrate=0):
         self.kfine = kfine
         supp = np.exp(-(kfine / self.k_s)**2 / 2.0)
 
         for key in self.names:
             dv = DoubletModel.Transitions[key]
             self._cached_model[key] = (1.25 + np.cos(kfine * dv)) * supp
+
+        if integrate > 1:
+            n = self.kfine.size // integrate
+            assert n * integrate == self.kfine.size
+            self.kfine = self.kfine.reshape(n, integrate).mean(axis=1)
+            for key in self.names:
+                self._cached_model[key] = self._cached_model[key].reshape(
+                    n, integrate).mean(axis=1)
 
     def getCachedModel(self, **kwargs):
         result = np.zeros_like(self.kfine)
@@ -585,6 +603,11 @@ class HcdModel(Model):
         'subDLA': [1.5083, 0.0994, 81.4, -0.2287, 0.8667, 0.0196],
         'LLS': [2.2001, 0.0134, 36.449, -0.0674, 0.9849, -0.0631]
     }
+    # at z = 2.44
+    init_values = {
+        'lDLA': 0.033, 'sDLA': 0.041, 'subDLA': 0.081, 'LLS': 0.149,
+        'rHcd0': 0.696
+    }
     gamma = -3.55
 
     def eval(k, z, a0, a1, b0, b1, c0, c1):
@@ -596,10 +619,22 @@ class HcdModel(Model):
         den = a * np.exp(b * k) - 1
         return c + amp * den**-2
 
-    def __init__(self, systems=['lDLA', 'sDLA']):
+    def __init__(
+            self, systems=['lDLA', 'sDLA'], no_const=False, no_rHcd0=False
+    ):
         super().__init__()
+        self._coeffs = HcdModel.coeffs.copy()
+        if no_const:
+            for key in self._coeffs:
+                self._coeffs[key][-2] = 0
+                self._coeffs[key][-1] = 0
+
         self._systems = systems
-        self.names = ['rHcd0'] + systems
+        if no_rHcd0:
+            self.names = systems.copy()
+        else:
+            self.names = ['rHcd0'] + systems
+
         self.param_labels = {
             'lDLA': r'r_\mathrm{lDLA}', 'sDLA': r'r_\mathrm{sDLA}',
             'subDLA': r'r_\mathrm{subDLA}', 'LLS': r'r_\mathrm{LLS}',
@@ -607,9 +642,8 @@ class HcdModel(Model):
         }
 
         for s in self.names:
-            self.initial[s] = 0.0
-            if s == 'subDLA' or s == 'LLS' or s == 'rHcd0':
-                self.initial[s] = 1.0
+            # self.initial[s] = 0.0
+            self.initial[s] = HcdModel.init_values[s]
             self.boundary[s] = (-1.0, 2.0)
 
         self._cached_model = {}
@@ -618,10 +652,14 @@ class HcdModel(Model):
     def cache(self, k, z):
         self.ksize = k.size
         for s in self._systems:
-            self._cached_model[s] = HcdModel.eval(k, z, *HcdModel.coeffs[s])
+            self._cached_model[s] = HcdModel.eval(k, z, *self._coeffs[s])
 
     def getCachedModel(self, **kwargs):
-        result = np.full(self.ksize, kwargs['rHcd0'], dtype=float)
+        if 'rHcd0' in kwargs:
+            result = np.full(self.ksize, kwargs['rHcd0'], dtype=float)
+        else:
+            result = np.ones(self.ksize, dtype=float)
+
         for s in self._systems:
             result += kwargs[s] * self._cached_model[s]
         return result
