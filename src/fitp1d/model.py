@@ -3,7 +3,12 @@ import itertools
 
 from astropy.cosmology import Planck18
 import camb
-import cosmopower
+try:
+    import cosmopower
+except ImportError as e:
+    cosmopower = None
+    print(e)
+
 import numpy as np
 from scipy.interpolate import CubicSpline
 
@@ -850,6 +855,7 @@ class LyaP1DArinyoModel(Model):
         self._use_camb = use_camb
         self._use_cosmopower = use_cosmopower
         if use_cosmopower:
+            assert(cosmopower is not None)
             self._cp_emulator = cosmopower.cosmopower_NN(
                 restore=True, restore_filename=f'{cp_model_dir}/PKLIN_NN')
             self._cp_lnk = np.log(10.0) * np.log10(

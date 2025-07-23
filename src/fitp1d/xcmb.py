@@ -5,7 +5,11 @@ from astropy.cosmology import Planck18
 from scipy.interpolate import CubicSpline
 from scipy.optimize import curve_fit
 
-import cosmopower
+try:
+    import cosmopower
+except ImportError as e:
+    cosmopower = None
+    print(e)
 
 from fitp1d.model import Model, BOLTZMANN_K, M_PROTON
 import fitp1d.basic_cosmo as mycosmo
