@@ -104,6 +104,7 @@ class Model():
 
 
 class IonModel(Model):
+    _verbose = False
     Transitions = {
         "Si-II": [
             (1190.42, 0.277), (1193.28, 0.575), (1260.42, 1.22),
@@ -164,7 +165,8 @@ class IonModel(Model):
                 r = self._getPivotScaling(ion, wave, fn)
                 result += 2 * r * np.cos(self._karr * vn)
 
-                print(f"_setLinearATerms({ion}, {wave}): {vn:.0f}")
+                if IonModel._verbose:
+                    print(f"_setLinearATerms({ion}, {wave}): {vn:.0f}")
 
             self._splines['linear_a'][f"a_{ion}"] = CubicSpline(self._karr, result)
 
@@ -189,7 +191,8 @@ class IonModel(Model):
                 r *= self._getPivotScaling(ion, p2[0], p2[1])
                 result += 2 * r * np.cos(self._karr * vmn)
 
-                print(f"_setOneionA2Terms({ion}, {p1[0]}, {p2[0]}): {vmn:.0f}")
+                if IonModel._verbose:
+                    print(f"_setOneionA2Terms({ion}, {p1[0]}, {p2[0]}): {vmn:.0f}")
 
             self._splines['oneion_a2'][f"a_{ion}"] = CubicSpline(self._karr, result)
 
@@ -217,8 +220,9 @@ class IonModel(Model):
                 r *= self._getPivotScaling(i2, p2[0], p2[1])
                 result += 2 * r * np.cos(self._karr * vmn)
                 all_zero = False
-                print(f"_setTwoionA2Terms({i1},"
-                      f" {p1[0]}, {i2}, {p2[0]}): {vmn:.0f}")
+                if IonModel._verbose:
+                    print(f"_setTwoionA2Terms({i1},"
+                          f" {p1[0]}, {i2}, {p2[0]}): {vmn:.0f}")
 
             if all_zero:
                 continue
