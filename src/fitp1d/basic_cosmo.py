@@ -29,16 +29,31 @@ def getLinearGrowthMasai(z, Om0):
     a = 1.0 / (1 + z)
     x = (1 - Om0) / Om0 * a**3
 
-    b3 = 0.005355
-    b2 = 0.3064
-    b1 = 1.175
-
-    c3 = 0.1530
-    c2 = 1.021
-    c1 = 1.857
-    bs = [b3, b2, b1, 1.0]
-    cs = [c3, c2, c1, 1.0]
+    bs = np.array([0.005355, 0.3064, 1.175, 1.0])
+    cs = np.array([0.1530, 1.021, 1.857, 1.0])
     return a * np.sqrt(1 + x) * np.polyval(bs, x) / np.polyval(cs, x)
+
+
+def getGrowthFactorMasaiDeriv(z, Om0):
+    # Analytic derivative of getLinearGrowthMasai
+    a = 1.0 / (1 + z)
+    x = (1 - Om0) / Om0 * a**3
+
+    bs = np.array([0.005355, 0.3064, 1.175, 1.0])
+    bsp = np.array([0.016065, 0.6128, 1.175])
+    cs = np.array([0.1530, 1.021, 1.857, 1.0])
+    csp = np.array([0.459, 2.042, 1.857])
+
+    fpf = (1.0 + 2.5 * x) / (3.0 * x * (1.0 + x))
+    ppp = np.polyval(bsp, x) / np.polyval(bs, x)
+    qpq = np.polyval(csp, x) / np.polyval(cs, x)
+    return 3.0 * x * (fpf + ppp - qpq)
+
+
+def getGrowthFactorOmApprox(z, Om0, nu=0.547):
+    Om = Om0 * (1.0 + z)**3
+    up = 1.0 + (1.0 - Om0) / Om
+    return up**-nu
 
 
 def getMpc2Kms(zarr, **kwargs):
