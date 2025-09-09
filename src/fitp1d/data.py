@@ -70,6 +70,7 @@ class DetailedData():
         p.setCovariance(p1d_fits.cov)
         return p
 
+    @classmethod
     def fromFile(cls, fname, fmt=None):
         if fmt:
             data_table = ascii.read(fname, format=fmt)
