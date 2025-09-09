@@ -18,7 +18,7 @@ class P1DLikelihood():
             elif cov is not None:
                 self.psdata.setCovariance(cov)
 
-        if fname_power.endswith(".fits") or fname_power.endswith(".fits.gz"):
+        elif fname_power.endswith(".fits") or fname_power.endswith(".fits.gz"):
             self.psdata = DetailedData.fromP1dFitsFile(fname_power)
             self.ndata = self.psdata.size
 
