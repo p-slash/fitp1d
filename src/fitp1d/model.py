@@ -286,7 +286,7 @@ class IonModel(Model):
 
         self.names = [f"a_{ion}" for ion in self._ions]
         self._ion_names = self.names.copy()
-        self._karr = np.linspace(0, 1, int(1e6))
+        self._karr = np.linspace(0, 0.2, int(1e4))
         self.bboost = doppler_boost
         self._name_combos = []
 
