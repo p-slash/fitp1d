@@ -426,7 +426,7 @@ class IonModel(Model):
 
         return result
 
-    def cache(self, kfine, integrate=0):
+    def cache(self, kfine, integrate=0, clear_memory=True):
         self._integrated_model['const_a2'] = self._splines['const_a2'].copy()
         self._integrated_model['linear_a'] = {}
         self._integrated_model['oneion_a2'] = {}
@@ -447,6 +447,9 @@ class IonModel(Model):
         for term in ['linear_a', 'oneion_a2', 'twoion_a2']:
             for ionkey, interp in self._splines[term].items():
                 self._integrated_model[term][ionkey] = interp(kfine)
+
+        if clear_memory:
+            self._splines = {}
 
     def evaluate(self, k, **kwargs):
         result = np.zeros_like(k)
