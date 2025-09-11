@@ -12,7 +12,6 @@ from getdist import plots, MCSamples
 import fitp1d.plotting
 from fitp1d.p3d_model import LyaP3DArinyoModel
 
-mycosmopowerdir = "/Users/nk452/repos/cosmopower"
 mydatadir = "OSC-v5/no-contaminants/eboss-combined.fits"
 use_mp = False  # This is not supported with vectorized log_prob.
 progbar = False
@@ -35,9 +34,6 @@ def getParser():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--mydatadir", help="Data directory",
                         default=mydatadir)
-    parser.add_argument(
-        "--mycosmopowerdir", help="CosmoPower trained emulator",
-        default=mycosmopowerdir)
     parser.add_argument("--prior-file",
                         help="Prior updates. Non-present keys "
                              "will be existing Planck18 defaults")
@@ -112,8 +108,7 @@ def setGlobals(args):
         print("Vectorization disables multiprocessing.")
 
     _, k, _, _, pfid, p2fit, _, _, fisher, _ = readP3dData(args.mydatadir, nl)
-    model = LyaP3DArinyoModel(args.zeff, args.mycosmopowerdir,
-                              use_camb=args.use_camb)
+    model = LyaP3DArinyoModel(args.zeff, use_camb=args.use_camb)
     model.cacheK(k)
     p2fit = p2fit.ravel()
 

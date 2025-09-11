@@ -5,11 +5,7 @@ from astropy.cosmology import Planck18
 from scipy.interpolate import CubicSpline
 from scipy.optimize import curve_fit
 
-try:
-    import cosmopower
-except ImportError as e:
-    cosmopower = None
-    print(e)
+import cosmopower_slim
 
 from fitp1d.model import Model, BOLTZMANN_K, M_PROTON
 import fitp1d.basic_cosmo as mycosmo
@@ -172,7 +168,7 @@ class LyaxCmbModel(Model):
             self._wchi_exp_mult = None
 
     def __init__(
-            self, z, cp_model_dir, wiener_fname,
+            self, z, wiener_fname,
             nlnkbins=100, nwbins=10, klimits=[5e-5, 1e2], dz=0.4,
             emu="PKLIN_NN"
     ):
@@ -180,10 +176,8 @@ class LyaxCmbModel(Model):
         self.setRedshift(z, dz)
         self.setIntegrationArrays(nlnkbins, nwbins, klimits)
 
-        self._cp_emulator = cosmopower.cosmopower_NN(
-            restore=True,
-            restore_filename=f'{cp_model_dir}/PKLIN_NN')
-        self._cp_log10k = np.log10(np.loadtxt(f"{cp_model_dir}/k_modes.txt"))
+        self._cp_emulator = cosmopower_slim.cosmopower_NN()
+        self._cp_log10k = self._cp_emulator.log10k
 
         self.wiener = MyWienerInterp(wiener_fname, fit=True)
         self.wiener_deriv = self.wiener.derivative()

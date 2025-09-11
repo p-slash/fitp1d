@@ -9,6 +9,7 @@ tqdm
 fitsio
 camb
 numba
+cosmopower_slim@git+ssh://git@github.com/p-slash/cosmopower-slim.git
 
 # mpi4py
 # h5py
