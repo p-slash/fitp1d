@@ -4,9 +4,9 @@ import itertools
 from astropy.cosmology import Planck18
 import camb
 try:
-    import cosmopower
+    import cosmopower_slim
 except ImportError as e:
-    cosmopower = None
+    cosmopower_slim = None
     print(e)
 
 import numpy as np
@@ -848,18 +848,16 @@ class LyaP1DArinyoModel(Model):
     PIVOT_Z = 3.0
 
     def __init__(
-            self, use_camb, use_cosmopower=False, cp_model_dir=None,
+            self, use_camb, use_cosmopower=False,
             nkperp=500, which_prior="accel2"
     ):
         super().__init__()
         self._use_camb = use_camb
         self._use_cosmopower = use_cosmopower
         if use_cosmopower:
-            assert(cosmopower is not None)
-            self._cp_emulator = cosmopower.cosmopower_NN(
-                restore=True, restore_filename=f'{cp_model_dir}/PKLIN_NN')
-            self._cp_lnk = np.log(10.0) * np.log10(
-                np.loadtxt(f"{cp_model_dir}/k_modes.txt"))
+            assert(cosmopower_slim is not None)
+            self._cp_emulator = cosmopower_slim.cosmopower_NN()
+            self._cp_lnk = np.log(10.0) * self._cp_emulator.log10k
         else:
             self._cp_emulator, self._cp_lnk = None, None
 

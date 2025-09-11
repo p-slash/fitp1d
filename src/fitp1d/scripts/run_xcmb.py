@@ -10,7 +10,6 @@ from fitp1d.xcmb import getMpc2Kms
 import emcee
 
 myb1ddatadir = "/dvs_ro/cfs/cdirs/desicollab/users/naimgk/CMBxPLya/v3x/forecast"
-mycosmopowerdir = "/dvs_ro/u1/n/naimgk/Repos/cosmopower"
 mywienerfilter = "/dvs_ro/u1/n/naimgk/Repos/plyacmb/src/plyacmb/data/mv_wiener_filter_planck18.txt"
 zeff = 2.4
 nwalkers = 128
@@ -67,8 +66,6 @@ def getParser():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--myb1ddatadir", help="Data directory", default=myb1ddatadir)
-    parser.add_argument(
-        "--mycosmopowerdir", help="CosmoPower trained emulator", default=mycosmopowerdir)
     parser.add_argument(
         "--mywienerfilter", help="Wiener filter file", default=mywienerfilter)
     parser.add_argument("--prior-file", help="Prior dict file")
@@ -158,7 +155,7 @@ def setGlobals(args):
 
     from fitp1d.xcmb import LyaxCmbModel
     model = LyaxCmbModel(
-        args.zeff, args.mycosmopowerdir, args.mywienerfilter,
+        args.zeff, args.mywienerfilter,
         nlnkbins=100, nwbins=10
     )
 

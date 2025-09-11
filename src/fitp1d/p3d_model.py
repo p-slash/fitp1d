@@ -49,7 +49,7 @@ class MetalModel3D(Model):
 
 class LyaP3DArinyoModel(Model):
     def __init__(
-            self, z, cp_model_dir, emu="PKLIN_NN", use_camb=False,
+            self, z, emu="PKLIN_NN", use_camb=False,
             nmu=512, nl=4
     ):
         global cosmo_package
@@ -68,12 +68,9 @@ class LyaP3DArinyoModel(Model):
             self.pls.append(pl(self._muarr))
 
         if not use_camb:
-            import cosmopower as cosmo_package
-            self._cp_emulator = cosmo_package.cosmopower_NN(
-                restore=True,
-                restore_filename=f'{cp_model_dir}/PKLIN_NN')
-            self._cp_log10k = np.log10(
-                np.loadtxt(f"{cp_model_dir}/k_modes.txt"))
+            import cosmopower_slim as cosmo_package
+            self._cp_emulator = cosmo_package.cosmopower_NN()
+            self._cp_log10k = self._cp_emulator.log10k
         else:
             import camb as cosmo_package
             self._cp_emulator, self._cp_log10k = None, None
