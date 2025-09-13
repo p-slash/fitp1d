@@ -508,6 +508,7 @@ class DoubletModel(Model):
 
         self._cached_model = {}
         self.kfine = None
+        self._matrix = None
 
     def cache(self, kfine, integrate=0):
         self.kfine = kfine
@@ -525,12 +526,13 @@ class DoubletModel(Model):
                 self._cached_model[key] = self._cached_model[key].reshape(
                     n, integrate).mean(axis=1)
 
-    def getCachedModel(self, **kwargs):
-        result = np.zeros_like(self.kfine)
-        for key in self.names:
-            result += kwargs[key] * self._cached_model[key]
+        self._matrix = np.empty(len(self.names), self.kfine.size)
+        for i, key in enumerate(self.names):
+            self._matrix[i] = self._cached_model[key]
 
-        return result
+    def getCachedModel(self, **kwargs):
+        v = np.array([kwargs[_] for _ in self.names])
+        return v.dot(self._matrix)
 
     def eval(self, k, **kwargs):
         result = np.zeros_like(k)
