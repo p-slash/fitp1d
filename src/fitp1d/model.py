@@ -246,7 +246,6 @@ class IonModel(Model):
         self.turn_off_x_ion_terms = turn_off_x_ion_terms
         self.free_boost = free_boost
         self.per_transition_bias = per_transition_bias
-        self.integrate = 0
 
         if vmax > 0:
             self._vmax = vmax
@@ -420,10 +419,6 @@ class IonModel(Model):
         result *= bboost
         result += 1.0
 
-        if self.integrate > 1:
-            n = self.kfine.size // self.integrate
-            result = result.reshape(n, self.integrate).mean(axis=1)
-
         return result
 
     def cache(self, kfine, integrate=0, clear_memory=True):
@@ -432,10 +427,6 @@ class IonModel(Model):
         self._integrated_model['oneion_a2'] = {}
         self._integrated_model['twoion_a2'] = {}
         self.kfine = kfine
-        self.integrate = integrate
-        if self.integrate > 1:
-            n = self.kfine.size // integrate
-            assert n * integrate == self.kfine.size
 
         if self.free_boost:
             self._boost_cache = self.bboost * self.kfine**2
@@ -447,6 +438,16 @@ class IonModel(Model):
         for term in ['linear_a', 'oneion_a2', 'twoion_a2']:
             for ionkey, interp in self._splines[term].items():
                 self._integrated_model[term][ionkey] = interp(kfine)
+
+        if integrate > 1:
+            n = self.kfine.size // integrate
+            assert n * integrate == self.kfine.size
+            self.kfine = self.kfine.reshape(n, integrate).mean(axis=1)
+            for term in ['linear_a', 'oneion_a2', 'twoion_a2']:
+                for ionkey, interp in self._splines[term].items():
+                    self._integrated_model[term][ionkey] = \
+                        self._integrated_model[term][ionkey].reshape(
+                            n, integrate).mean(axis=1)
 
         if clear_memory:
             self._splines = {}
