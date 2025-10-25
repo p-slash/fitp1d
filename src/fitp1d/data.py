@@ -70,9 +70,9 @@ class DetailedData():
             res = nplr.merge_arrays(
                 (p1d_fits.p1d_data, dsyst), flatten=True, usemask=False)
             res = nplr.rename_fields(res, cls._map_from_fts | syst_map)
-            p = cls(res, p1d_fits.fname)
         else:
-            p = cls(p1d_fits.p1d_data, p1d_fits.fname)
+            res = nplr.rename_fields(p1d_fits.p1d_data, cls._map_from_fts)
+        p = cls(res, p1d_fits.fname)
         p.setCovariance(p1d_fits.cov)
         return p
 
