@@ -443,6 +443,10 @@ class IonModel(Model):
             n = self.kfine.size // integrate
             assert n * integrate == self.kfine.size
             self.kfine = self.kfine.reshape(n, integrate).mean(axis=1)
+            if not isinstance(self._boost_cache, int):
+                self._boost_cache = self._boost_cache.reshape(
+                    n, integrate).mean(axis=1)
+
             for term in ['linear_a', 'oneion_a2', 'twoion_a2']:
                 for ionkey, interp in self._splines[term].items():
                     self._integrated_model[term][ionkey] = \
