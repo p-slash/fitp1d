@@ -527,7 +527,7 @@ class DoubletModel(Model):
                 self._cached_model[key] = self._cached_model[key].reshape(
                     n, integrate).mean(axis=1)
 
-        self._matrix = np.empty(len(self.names), self.kfine.size)
+        self._matrix = np.empty((len(self.names), self.kfine.size))
         for i, key in enumerate(self.names):
             self._matrix[i] = self._cached_model[key]
 
