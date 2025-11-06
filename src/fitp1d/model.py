@@ -495,17 +495,31 @@ class DoubletModel(Model):
         "ew_N-V": LIGHT_SPEED * np.log(1242.80 / 1238.83)
     }
 
-    def __init__(self, model_ions=["C-IV"], k_s=0.009):
+    def __init__(
+            self, model_ions=["C-IV"], k_s=0.009, free_r=False
+    ):
         super().__init__()
 
+        self.free_r = free_r
+        self.ions = model_ions.copy()
         self.names = [f"ew_{ion}" for ion in model_ions]
+
         self.initial = {k: 0.1 for k in self.names}
         self.boundary = {k: (-5.0, 5.0) for k in self.names}
+        if free_r:
+            rnames = [f"r_{ion}" for ion in model_ions]
+            self.initial |= {r: 0.8 for r in rnames}
+            self.boundary |= {r: (0, 1) for r in rnames}
+
         self.param_labels = {
             "ew_Si-IV": r"E_{\mathrm{Si~IV}}",
             "ew_Mg-II": r"E_{\mathrm{Mg~II}}",
             "ew_C-IV": r"E_{\mathrm{C~IV}}",
-            "ew_N-V": r"E_{\mathrm{N~V}}"
+            "ew_N-V": r"E_{\mathrm{N~V}}",
+            "r_Si-IV": r"r_{\mathrm{Si~IV}}",
+            "r_Mg-II": r"r_{\mathrm{Mg~II}}",
+            "r_C-IV": r"r_{\mathrm{C~IV}}",
+            "r_N-V": r"r_{\mathrm{N~V}}"
         }
 
         # self.doppler = (1.0 / k_s)**2 / 2.0
@@ -513,15 +527,27 @@ class DoubletModel(Model):
 
         self._cached_model = {}
         self.kfine = None
+        self.integrate = 1
+        self.n1 = 0
         self._matrix = None
 
     def cache(self, kfine, integrate=0):
         self.kfine = kfine
+        self.n1 = kfine.size
         supp = np.exp(-(kfine / self.k_s)**2 / 2.0)
+
+        if integrate > 1:
+            n = self.kfine.size // integrate
+            assert n * integrate == self.kfine.size
+            self.integrate = integrate
+            self.n1 = n
+
+        if self.free_r:
+            return
 
         for key in self.names:
             dv = DoubletModel.Transitions[key]
-            self._cached_model[key] = (1.25 + np.cos(kfine * dv)) * supp
+            self._cached_model[key] = (1 + 0.8 * np.cos(kfine * dv)) * supp
 
         if integrate > 1:
             n = self.kfine.size // integrate
@@ -536,14 +562,22 @@ class DoubletModel(Model):
             self._matrix[i] = self._cached_model[key]
 
     def getCachedModel(self, **kwargs):
-        v = np.array([kwargs[_] for _ in self.names])
-        return v.dot(self._matrix)
+        if self._cached_model:
+            v = np.array([kwargs[_] for _ in self.names])
+            return v.dot(self._matrix)
+
+        res = self.eval(self.kfine)
+        return res.reshape(self.n1, self.integrate).mean(axis=1)
 
     def eval(self, k, **kwargs):
+        if not self.free_r:
+            kwargs |= {f'r_{ion}': 0.8 for ion in self.ions}
+
         result = np.zeros_like(k)
-        for key in self.names:
+        for ion in self.ions:
+            key = f"ew_{ion}"
             dv = DoubletModel.Transitions[key]
-            result += kwargs[key] * (1.25 + np.cos(k * dv))
+            result += kwargs[key] * (1 + kwargs[f'r_{ion}'] * np.cos(k * dv))
 
         return result * np.exp(-(k * self.doppler)**2)
 
