@@ -495,6 +495,13 @@ class DoubletModel(Model):
         "ew_N-V": LIGHT_SPEED * np.log(1242.80 / 1238.83)
     }
 
+    IonLabels = {
+        "Si-IV": "\mathrm{Si~IV}",
+        "Mg-II": "\mathrm{Mg~II}",
+        "C-IV": "\mathrm{C~IV}",
+        "N-V": "\mathrm{N~V}",
+    }
+
     def __init__(
             self, model_ions=["C-IV"], k_s=0.009, free_r=False
     ):
@@ -506,21 +513,16 @@ class DoubletModel(Model):
 
         self.initial = {k: 0.1 for k in self.names}
         self.boundary = {k: (-5.0, 5.0) for k in self.names}
+        self.param_labels = {
+            f"ew_{ion}": rf"E_{{{lbl}}}" for ion, lbl in self.IonLabels
+        }
         if free_r:
             rnames = [f"r_{ion}" for ion in model_ions]
             self.initial |= {r: 0.8 for r in rnames}
             self.boundary |= {r: (0, 1) for r in rnames}
-
-        self.param_labels = {
-            "ew_Si-IV": r"E_{\mathrm{Si~IV}}",
-            "ew_Mg-II": r"E_{\mathrm{Mg~II}}",
-            "ew_C-IV": r"E_{\mathrm{C~IV}}",
-            "ew_N-V": r"E_{\mathrm{N~V}}",
-            "r_Si-IV": r"r_{\mathrm{Si~IV}}",
-            "r_Mg-II": r"r_{\mathrm{Mg~II}}",
-            "r_C-IV": r"r_{\mathrm{C~IV}}",
-            "r_N-V": r"r_{\mathrm{N~V}}"
-        }
+            self.param_labels |= {
+                f"r_{ion}": rf"r_{{{lbl}}}" for ion, lbl in self.IonLabels
+            }
 
         # self.doppler = (1.0 / k_s)**2 / 2.0
         self.k_s = k_s
