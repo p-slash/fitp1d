@@ -18,9 +18,13 @@ class MetalModel3D(Model):
     def __init__(self, z):
         super().__init__()
         self.names = ['b_SiIII_1207', 'beta_metal', 'sigma_v']
+        # self.initial = {
+        #     'b_SiIII_1207': np.array([-9.8e-3]), 'beta_metal': np.array([0.5]),
+        #     'sigma_v': np.array([5.0])
+        # }
         self.initial = {
-            'b_SiIII_1207': np.array([-9.8e-3]), 'beta_metal': np.array([0.5]),
-            'sigma_v': np.array([5.0])
+            'b_SiIII_1207': np.array([0.]), 'beta_metal': np.array([0.]),
+            'sigma_v': np.array([0.])
         }
         self.boundary = {
             'b_SiIII_1207': (-0.5, 0), 'beta_metal': (0.0, 2.0),
@@ -83,10 +87,9 @@ class LyaP3DArinyoModel(Model):
         self.metal_model = MetalModel3D(z)
 
         self._lya_nuis = [
-            'b_F', 'beta_F', 'q_1', '10kv', 'nu_0', 'nu_1', 'k_p',
+            'b_F', 'beta_F', 'q_1', 'kvav', 'cv', 'bv', 'k_p',
             'b_hcd', 'beta_hcd', 'L_hcd',
             'a_sky', 'sigma_sky'] + self.metal_model.names
-        self._broadcasted_params = self._cosmo_names + self._lya_nuis
 
         self.initial = {
             'omega_b': np.array([Planck18.Ob0 * Planck18.h**2]),
@@ -95,12 +98,15 @@ class LyaP3DArinyoModel(Model):
             'n_s': np.array([Planck18.meta['n']]),
             'ln10^{10}A_s': np.array([3.044]),
             'b_F': np.array([-0.1195977]), 'beta_F': np.array([1.6633]),
-            'q_1': np.array([0.796]), '10kv': np.array([3.922]),
-            'nu_0': np.array([1.267]), 'nu_1': np.array([1.65]),
+            'q_1': np.array([0.796]), 'kvav': np.array([0.4]),
+            'cv': np.array([1.3]), 'bv': np.array([1.65]),
             'k_p': np.array([16.802]),  # Mpc^-1
-            'b_hcd': np.array([-0.05]), 'beta_hcd': np.array([0.7]),
-            'L_hcd': np.array([14.8]),
-            'a_sky': np.array([0.0]), 'sigma_sky': np.array([45.0])
+            'b_hcd': np.array([0.0]), 'beta_hcd': np.array([0.]),
+            'L_hcd': np.array([0]),
+            'a_sky': np.array([0.0]), 'sigma_sky': np.array([0.0]),
+            # 'b_hcd': np.array([-0.05]), 'beta_hcd': np.array([0.7]),
+            # 'L_hcd': np.array([14.8]),
+            # 'a_sky': np.array([0.0]), 'sigma_sky': np.array([45.0])
         } | self.metal_model.initial
 
         self.boundary = {
@@ -110,20 +116,22 @@ class LyaP3DArinyoModel(Model):
             'h': (0.64, 0.82),
             'ln10^{10}A_s': (1.61, 3.91),
             'b_F': (-2.0, 0.0), 'beta_F': (1.0, 3.0), 'q_1': (0.0, 4.0),
-            '10kv': (0.0, 1e2), 'nu_0': (0.0, 10.0), 'nu_1': (0.0, 10.0),
-            'k_p': (0.0, 1e2),
+            'kvav': (0.1, 3.0), 'cv': (0.1, 3.0), 'bv': (1.0, 2.2),
+            'k_p': (0.0, 1e2), 'm_nu': (0.0, 1.0),
             'b_hcd': (-0.2, 0.0), 'beta_hcd': (0.0, 2.0), 'L_hcd': (0.0, 40.0),
             'a_sky': (0.0, 10.0), 'sigma_sky': (10.0, 125.0)
         } | self.metal_model.boundary
 
         self.param_labels = {
-            'omega_b': '\\Omega_b h^2', 'omega_cdm': '\\Omega_c h^2',
-            'h': 'h', 'n_s': 'n_s', 'ln10^{10}A_s': 'ln(10^{10} A_s)',
-            'b_F': 'b_F', 'beta_F': '\\beta_F', 'k_p': 'k_p',
-            '10kv': 'k_\\nu [10^{-1}~Mpc]',
-            'q_1': 'q_1', 'nu_0': '\\nu_0', 'nu_1': '\\nu_1',
-            'b_hcd': 'b_{HCD}', 'beta_hcd': '\\beta_{HCD}', 'L_hcd': 'L_{HCD}',
-            'a_sky': 'a_\\mathrm{sky}', 'sigma_sky': '\\sigma_\\mathrm{sky}'
+            'omega_b': r'\Omega_b h^2', 'omega_cdm': r'\Omega_c h^2',
+            'h': 'h', 'n_s': 'n_s', 'ln10^{10}A_s': r'ln(10^{10} A_s)',
+            'b_F': 'b_F', 'beta_F': r'\beta_F', 'k_p': 'k_p',
+            'kvav': r'A_\nu',
+            'cv': r'c_\nu', 'bv': r'b_\nu',
+            'q_1': 'q_1',
+            'b_hcd': 'b_\mathrm{HCD}', 'beta_hcd': 'beta_\mathrm{HCD}',
+            'L_hcd': 'L_\mathrm{HCD}',
+            'a_sky': 'a_\mathrm{sky}', 'sigma_sky': 'sigma_\mathrm{sky}'
         } | self.metal_model.param_labels
 
         self.prior = {
@@ -135,11 +143,12 @@ class LyaP3DArinyoModel(Model):
             'k_p': 4.8, 'q_1': 0.2, 'beta_hcd': 0.09
         } | self.metal_model.prior
 
-        if "mnu" in emu:
+        if "mnu" in emu or use_camb:
             self._cosmo_names.append("m_nu")
-            self.initial['m_nu'] = 0.06
+            self.initial['m_nu'] = np.array([0.06])
             self.param_labels['m_nu'] = 'm_{\nu}'
 
+        self._broadcasted_params = self._cosmo_names + self._lya_nuis
         self._templates = {}
 
     def margLyaP1D(self):
@@ -237,7 +246,7 @@ class LyaP3DArinyoModel(Model):
             H0=100.0 * kwargs['h'][0],
             ns=kwargs['n_s'][0],
             As=np.exp(kwargs['ln10^{10}A_s'][0]) * 1e-10,
-            mnu=0.0, nnu=3.046, kmax=10.0
+            mnu=kwargs['m_nu'][0], nnu=3.046, kmax=10.0
         )
         camb_results = cosmo_package.get_results(camb_params)
 
@@ -245,7 +254,7 @@ class LyaP3DArinyoModel(Model):
             hubble_units=False, k_hunit=False)
         np.log10(pk, out=pk)
         np.log10(khs, out=khs)
-        return MyPlinInterp(khs, pk)
+        return MyPlinInterp(khs, pk, h=kwargs['h'][0])
 
     def getPlinInterp(self, **kwargs):
         if self._use_camb:
@@ -285,20 +294,19 @@ class LyaP3DArinyoModel(Model):
         beta_HCD = kwargs['beta_hcd'][:, None, None]
         L_HCD = kwargs['L_hcd'][:, None, None]
         q_1 = kwargs['q_1'][:, None, None]
-        k_nu = kwargs['10kv'][:, None, None]
-        nu_0 = kwargs['nu_0'][:, None, None]
-        nu_1 = kwargs['nu_1'][:, None, None]
+        A_nu = kwargs['kvav'][:, None, None]
+        cv = kwargs['cv'][:, None, None]
+        bv = kwargs['bv'][:, None, None]
         mu = mu[None, :, :]
 
         mu2 = mu**2
+        k = k[None, :, :]
         bbeta_lya = b_F * (1.0 + beta_F * mu2)
-        kz = k[None, :, :] * mu
+        kz = k * mu
         bbeta_hcd_kz = b_HCD * (1 + beta_HCD * mu2) * np.exp(-L_HCD * kz)
 
-        k_knu = k[None, :, :] / k_nu
-        lnD = delta2[:, :, None] * q_1 * (
-            1.0 - ((kz / k_nu)**nu_1 / k_knu**nu_0) * 10**(nu_1 - nu_0))
-        lnD -= (k**2)[None, :, :] / (kwargs['k_p']**2)[:, None, None]
+        lnD = delta2[:, :, None] * q_1 * (1.0 - kz**bv * k**-cv / A_nu)
+        lnD -= k**2 / (kwargs['k_p']**2)[:, None, None]
         np.exp(lnD, out=lnD)
 
         result = bbeta_lya * bbeta_lya * lnD + self.apo_halo * (
@@ -310,12 +318,15 @@ class LyaP3DArinyoModel(Model):
 
         return result
 
-    def getPls(self, **kwargs):
+    def getPls(self, plin_interp=None, **kwargs):
         if self._cosmo_fixed:
             plin = self._plin(self._k)
-        else:
+        elif plin_interp is None:
             plin_interp = self.getPlinInterp(**kwargs)
             plin = plin_interp(self._k)
+        else:
+            plin = plin_interp(self._k)
+
         ncosmo = plin.shape[0]
         delta2 = plin * self._k3
         tk = self._getTransfer3D(self._kk, self._mmuu, delta2, **kwargs)
