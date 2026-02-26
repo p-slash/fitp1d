@@ -170,14 +170,21 @@ class LyaxCmbModel(Model):
     def __init__(
             self, z, wiener_fname,
             nlnkbins=100, nwbins=10, klimits=[5e-5, 1e2], dz=0.4,
-            emu="PKLIN_NN"
+            emu="PKLIN_NN", use_camb=False,
     ):
         super().__init__()
         self.setRedshift(z, dz)
         self.setIntegrationArrays(nlnkbins, nwbins, klimits)
 
-        self._cp_emulator = cosmopower_slim.cosmopower_NN()
-        self._cp_log10k = self._cp_emulator.log10k
+        self._use_camb = use_camb
+
+        if not use_camb:
+            import cosmopower_slim as cosmo_package
+            self._cp_emulator = cosmo_package.cosmopower_NN()
+            self._cp_log10k = self._cp_emulator.log10k
+        else:
+            import camb as cosmo_package
+            self._cp_emulator, self._cp_log10k = None, None
 
         self.wiener = MyWienerInterp(wiener_fname, fit=True)
         self.wiener_deriv = self.wiener.derivative()
@@ -186,8 +193,7 @@ class LyaxCmbModel(Model):
             'omega_b', 'omega_cdm', 'h', 'n_s', 'ln10^{10}A_s']
 
         self._lya_nuis = [
-            'b_F', 'beta_F', 'k_p', 'q_1', 'q_2', 'log10T', 'nu0_th', 'nu1_th']
-        self._broadcasted_params = self._cosmo_names + self._lya_nuis
+            'b_F', 'beta_F', 'k_p', 'q_1', 'log10T', 'kvav', 'cv', 'bv', 'nu1_th']
 
         self.initial = {
             'omega_b': np.array([Planck18.Ob0 * Planck18.h**2]),
@@ -198,8 +204,9 @@ class LyaxCmbModel(Model):
             'b_F': np.array([-0.15]), 'beta_F': np.array([1.67]),
             'k_p': np.array([8.7]),  # Mpc^-1
             'q_1': np.array([0.25]), 'q_2': np.array([0.25]),
-            'log10T': np.array([4.]),
-            'nu0_th': np.array([1.5]), 'nu1_th': np.array([1])
+            'log10T': np.array([4.]), 'nu1_th': np.array([2]),
+            'bv': np.array([1.65]), 'cv': np.array([1.3]),
+            'kvav': np.array([0.4]),
         }
         self._sigma_th_pivot_kms = mycosmo.LIGHT_SPEED * np.sqrt(
             BOLTZMANN_K * 10000. / M_PROTON)
@@ -212,7 +219,7 @@ class LyaxCmbModel(Model):
             'ln10^{10}A_s': (1.61, 3.91),
             'b_F': (-2, 0), 'beta_F': (1, 3), 'k_p': (0, 1e3),
             'q_1': (0, 4), 'q_2': (0, 4), 'log10T': (-2, 10),
-            'nu0_th': (0, 10), 'nu1_th': (0, 10)
+            'bv': (0, 10), 'cv': (0, 10), 'nu1_th': (0, 10), 'kvav': (0.1, 3.0)
         }
 
         self.param_labels = {
@@ -220,13 +227,54 @@ class LyaxCmbModel(Model):
             'h': 'h', 'n_s': 'n_s', 'ln10^{10}A_s': 'ln(10^{10} A_s)',
             'b_F': 'b_F', 'beta_F': '\\beta_F', 'k_p': 'k_p',
             'q_1': 'q_1', 'q_2': 'q_2', 'log10T': '\\log_{10}T',
-            'nu0_th': '\\nu_{0, th}', 'nu1_th': '\\nu_{1, th}'
+            'bv': 'b_\nu', 'cv': 'c_\nu', 'nu1_th': '\\nu_{1, th}',
+            'kvav': r'A_\nu',
         }
 
-        if "mnu" in emu:
+        if "mnu" in emu or use_camb:
             self._cosmo_names.append("m_nu")
-            self.initial['m_nu'] = 0.06
+            self.initial['m_nu'] = np.array([0.06])
             self.param_labels['m_nu'] = 'm_{\nu}'
+        self._broadcasted_params = self._cosmo_names + self._lya_nuis
+
+    def getPlinInterp(self, **kwargs):
+        if self._use_camb:
+            return self.getCambInterpolator(**kwargs)
+
+        emu_params = {key: kwargs[key] for key in self._cosmo_names}
+        emu_params['z'] = kwargs['z']
+
+        # shape (ndim, nkmodes) in Mpc
+        return mycosmo.MyPlinInterp(
+            self._cp_log10k, self._cp_emulator.predictions_np(emu_params),
+            h=emu_params['h'])
+
+    def getCambInterpolator(self, **kwargs):
+        """ Vectorization is not possible """
+        for key in self._cosmo_names:
+            assert len(kwargs[key]) == 1
+
+        camb_params = cosmo_package.set_params(
+            redshifts=[self.z],
+            WantCls=False, WantScalars=False,
+            WantTensors=False, WantVectors=False,
+            WantDerivedParameters=False, NonLinear="NonLinear_none",
+            WantTransfer=True,
+            omch2=kwargs['omega_cdm'][0],
+            ombh2=kwargs['omega_b'][0],
+            omk=0.,
+            H0=100.0 * kwargs['h'][0],
+            ns=kwargs['n_s'][0],
+            As=np.exp(kwargs['ln10^{10}A_s'][0]) * 1e-10,
+            mnu=kwargs['m_nu'][0], nnu=3.046, kmax=10.0
+        )
+        camb_results = cosmo_package.get_results(camb_params)
+
+        khs, _, pk = camb_results.get_linear_matter_power_spectrum(
+            hubble_units=False, k_hunit=False)
+        np.log10(pk, out=pk)
+        np.log10(khs, out=khs)
+        return mycosmo.MyPlinInterp(khs, pk, h=kwargs['h'][0])
 
     def broadcastKwargs(self, **kwargs):
         ndim = np.max([
@@ -248,15 +296,6 @@ class LyaxCmbModel(Model):
 
         kwargs['z'] = self.z * np.ones(ndim)
         return kwargs
-
-    def getPlinInterp(self, **kwargs):
-        emu_params = {key: kwargs[key] for key in self._cosmo_names}
-        emu_params['z'] = kwargs['z']
-
-        # shape (ndim, nkmodes) in Mpc
-        return mycosmo.MyPlinInterp(
-            self._cp_log10k, self._cp_emulator.predictions_np(emu_params),
-            h=emu_params['h'])
 
     def getMpc2Kms(self, zarr=None, **kwargs):
         h = kwargs['h']
@@ -300,7 +339,7 @@ class LyaxCmbModel(Model):
         b3d *= self.qb_1d
         return np.trapz(b3d, dx=self.dlnk, axis=-1)
 
-    def integrateB3dTrapz(self, k, limber_o1=False, **kwargs):
+    def integrateB3dTrapz(self, k, limber_o1=False, plin_interp=None, **kwargs):
         # kwargs = self.broadcastKwargs(**kwargs)
         h = kwargs['h']
         kp = kwargs['k_p']
@@ -311,9 +350,10 @@ class LyaxCmbModel(Model):
             * 10**(kwargs['log10T'] / 2 - 2)
         )
         Om0 = (kwargs['omega_b'] + kwargs['omega_cdm']) / h**2
-        plin_interp = self.getPlinInterp(**kwargs)
+        if plin_interp is None:
+            plin_interp = self.getPlinInterp(**kwargs)
 
-        invkp2 = -kp**-2
+        invkp2 = -2 * kp**-2
         k2 = k**2
 
         chiz_tb_3d = np.multiply.outer(self.chiz_om0_mpch_fn(Om0) / h, self.tb_2d)
@@ -354,21 +394,19 @@ class LyaxCmbModel(Model):
 
         return b1d
 
-    def getP1dTrapz(self, k, **kwargs):
+    def getP1dTrapz(self, k, plin_interp=None, **kwargs):
         kp = kwargs['k_p']
         b_F = kwargs['b_F']
         beta_F = kwargs['beta_F']
         q_1 = kwargs['q_1'][:, np.newaxis, np.newaxis]
-        q_2 = kwargs['q_2'][:, np.newaxis, np.newaxis]
-        nu1 = kwargs['nu1_th'][:, np.newaxis, np.newaxis] / 2
-        nu0 = kwargs['nu0_th'][:, np.newaxis, np.newaxis]
-        sigma_th = (
-            self.getKms2Mpc(**kwargs) * self._sigma_th_pivot_kms
-            * 10**(kwargs['log10T'] / 2 - 2)
-        )
-        plin_interp = self.getPlinInterp(**kwargs)
+        A_nu = kwargs['kvav'][:, np.newaxis, np.newaxis]
+        bv = kwargs['bv'][:, np.newaxis, np.newaxis] / 2
+        cv = kwargs['cv'][:, np.newaxis, np.newaxis] / 2
 
-        invkp2 = -2 * kp**-2
+        if plin_interp is None:
+            plin_interp = self.getPlinInterp(**kwargs)
+
+        invkp2 = -kp**-2
         k2 = k**2
 
         k2_2d, qb2_2d = np.meshgrid(k2, self.qb2_1d_p1d, indexing='ij', copy=True)
@@ -378,17 +416,10 @@ class LyaxCmbModel(Model):
 
         p3d = (1 + np.multiply.outer(beta_F, ww2))**2 * plin_interp(q_2d)
         Delta2 = plin_interp.getDelta2(q_2d)
-        nonlinear = q_1 * Delta2
-        if not np.allclose(q_2, 0):
-            nonlinear += q_2 * Delta2**2
 
         p3d *= np.exp(
             np.multiply.outer(invkp2, qb2_2d)
-            + nonlinear * (
-                1 - np.power(
-                    np.multiply.outer(sigma_th**2, k2_2d), nu1
-                ) / np.power(np.multiply.outer(sigma_th, q_2d), nu0)
-            )
+            + q_1 * Delta2 * (1 - k2_2d**bv / q_2d**cv / A_nu)
         )
         p1d = np.trapz(p3d * qb2_2d, dx=self.dlnk_p1d, axis=-1)
 
