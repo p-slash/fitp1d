@@ -8,14 +8,19 @@ import iminuit
 import numpy as np
 import matplotlib.pyplot as plt
 from getdist import plots, MCSamples
+from getdist.gaussian_mixtures import GaussianND
+
 
 import fitp1d.plotting
 from fitp1d.p3d_model import LyaP3DArinyoModel
+from fitp1d.xcmb import getMpc2Kms
 
 mydatadir = "OSC-v5/no-contaminants/eboss-combined.fits"
+myb1ddatadir = "/dvs_ro/cfs/cdirs/desicollab/users/naimgk/CMBxPLya/v3x/forecast"
 use_mp = False  # This is not supported with vectorized log_prob.
 progbar = False
 vectorize = False
+zeff = 2.4
 nl = 4
 nwalkers = 40
 nproc = 5
@@ -25,7 +30,7 @@ model, base_cosmo = None, None
 k, p2fit, fisher, invcov = None, None, None, None
 fit_ftimesmodel = False
 mcmc_package = None
-free_params, fix_params, all_params = ['b_F', 'beta_F', 'q_1', 'k_p'], [], []
+free_params, fix_params, all_params = ['b_F', 'beta_F', 'q_1', 'k_p', 'kvav', 'bv', 'cv'], [], []
 timestamp = "000_000"
 
 
@@ -34,11 +39,14 @@ def getParser():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--mydatadir", help="Data directory",
                         default=mydatadir)
+    parser.add_argument("--myb1ddatadir", help="Data directory", default=myb1ddatadir)
     parser.add_argument("--prior-file",
                         help="Prior updates. Non-present keys "
                              "will be existing Planck18 defaults")
     parser.add_argument("--zeff", type=float, help="Effective redshift",
                         default=2.4)
+    parser.add_argument("--nl", type=int, default=nl,
+                        help="Number of multipoles to fit.")
     parser.add_argument("--fix-cosmology", action="store_true",
                         help="Do not sample cosmology.")
     parser.add_argument("--fit-hcds", action="store_true",
@@ -80,21 +88,25 @@ def readP3dData(fname, nl):
         fisher = hdul['FISHER'].data
         cov = hdul['COV'].data
 
-    nk = k.size // nl
-    k = k.reshape(nl, nk)[0]
-    njobs = p3d.shape[0]
-    p3d_all = p3d.reshape(njobs, nl, nk)
-    pfid = pfid.reshape(nl, nk)
-    p3d = p3d_all[4]
-    fp = fp[4].reshape(nl, nk)
-    err = np.sqrt(cov.diagonal()).reshape(nl, nk)
-    return nk, k, njobs, p3d_all, pfid, p3d, fp, err, fisher, cov
+    nk = np.unique(k).size
+    nell = k.size // nk
+    assert nell * nk == k.size, f"Expected k size to be divisible by nl={nl}, but got {k.size}."
 
+    k = k.reshape(nell, nk)[0]
+    njobs = p3d.shape[0]
+    p3d_all = p3d.reshape(njobs, nell, nk)[:, :nl, :]
+    pfid = pfid.reshape(nell, nk)[:nl, :]
+    p3d = p3d_all[0][:nl, :]
+    fp = fp[0].reshape(nell, nk)[:nl, :]
+    err = np.sqrt(cov.diagonal()).reshape(nell, nk)[:nl, :]
+    cov = cov.reshape(nell, nk, nell, nk)[:nl, :, :nl, :].reshape(nl * nk, nl * nk)
+    fisher = np.linalg.inv(cov)
+    return nk, k, njobs, p3d_all, pfid, p3d, fp, err, fisher, cov
 
 def setGlobals(args):
     global nwalkers, nsamples, progbar, nproc, vectorize, use_mp
     global model, base_cosmo, free_params, fix_params, all_params
-    global k, p2fit, fisher, invcov, fit_ftimesmodel
+    global k, p2fit, fisher, invcov, fit_ftimesmodel, nl
     global mcmc_package
 
     nwalkers = args.nwalkers
@@ -103,12 +115,13 @@ def setGlobals(args):
     progbar = args.progbar
     vectorize = args.vectorize
     fit_ftimesmodel = args.fit_FtimesModel
+    nl = args.nl
     use_mp = (nproc > 1) & (not vectorize)
     if vectorize and (nproc > 1):
         print("Vectorization disables multiprocessing.")
 
     _, k, _, _, pfid, p2fit, _, _, fisher, _ = readP3dData(args.mydatadir, nl)
-    model = LyaP3DArinyoModel(args.zeff, use_camb=args.use_camb)
+    model = LyaP3DArinyoModel(args.zeff, use_camb=args.use_camb, nl=nl)
     model.cacheK(k)
     p2fit = p2fit.ravel()
 
@@ -117,6 +130,10 @@ def setGlobals(args):
         free_params.append('a_p1d')
 
     base_cosmo = model.broadcastKwargs(**model.initial.copy())
+    print("Base cosmology:")
+    for key in model._cosmo_names:
+        print(f"  {key}: {base_cosmo[key][0]}")
+
     if args.mock_truth:
         p2fit = model.getPls(**base_cosmo)[0].ravel()
     elif args.fit_pfid:
@@ -251,32 +268,64 @@ def minimize():
     plt.legend(fontsize='x-large', ncol=2)
     plt.xlabel(r"$k~$[Mpc$^{-1}$]")
     plt.ylabel(r"$k P_\ell(k)~$[Mpc$^{2}$]")
-    plt.savefig(f"minimizer_data_vs_bestfit_{timestamp}.pdf",
+    plt.savefig(f"minimizer_data_vs_bestfit_{timestamp}.png",
                 dpi=200, bbox_inches='tight')
     plt.close()
 
-    nplots = len(free_params)
-    nplots *= nplots - 1
-    nplots //= 2
-    ncols = round(np.sqrt(nplots))
-    nrows = int(np.ceil(nplots / ncols))
-    fig, axs = plt.subplots(
-        nrows, ncols, figsize=(5 * ncols, 5 * nrows),
-        gridspec_kw={'hspace': 0.2, 'wspace': 0.3})
+    gnd = GaussianND(
+        mean=mini.values[free_params],
+        cov=mini.covariance[free_params],
+        names=free_params,
+        labels=[model.param_labels[key] for key in free_params],
+        label=""
+    )
+    pri_params = set(model.prior.keys()).intersection(free_params)
+    pri_gnd = GaussianND(
+        mean=[base_cosmo[key][0] for key in pri_params],
+        cov=np.diag([model.prior[key]**2 for key in pri_params]),
+        names=pri_params,
+        labels=[model.param_labels[key] for key in pri_params],
+        label="Prior"
+    )
+    g = plots.get_subplot_plotter()
+    g.settings.axes_fontsize = 15
+    g.settings.axes_labelsize = 20
 
-    j = 0
-    for i, key1 in enumerate(free_params[:-1]):
-        for key2 in free_params[i + 1:]:
-            fitp1d.plotting.plotEllipseMinimizer(
-                mini, key1, key2, model.param_labels, 'tab:blue',
-                ax=axs[j // ncols, j % ncols],
-                alpha=0.6, box=True, truth=model.initial, prior=model.prior
-            )
-            j += 1
-
-    plt.savefig(f"minimizer-ellipses_{timestamp}.pdf",
-                dpi=200, bbox_inches='tight')
+    # g.triangle_plot(
+    #     [gnd], filled=[True], lws=1.5,
+    #     colors=[plt.cm.tab10(0)], alpha=0.6,
+    #     labels=["Minimizer"])
+    # plt.savefig(f"minimizer_contour_{timestamp}.png", dpi=200, bbox_inches='tight')
     plt.close()
+    g.triangle_plot(
+        [gnd, pri_gnd], pri_params, filled=[True, False], lws=1.5,
+        contour_colors=[plt.cm.tab10(0), 'k'], alpha=0.6,
+        labels=["Minimizer", "Prior"])
+    plt.savefig(f"prior_contour_{timestamp}.png", dpi=200, bbox_inches='tight')
+    plt.close()
+
+    # nplots = len(free_params)
+    # nplots *= nplots - 1
+    # nplots //= 2
+    # ncols = round(np.sqrt(nplots))
+    # nrows = int(np.ceil(nplots / ncols))
+    # fig, axs = plt.subplots(
+    #     nrows, ncols, figsize=(5 * ncols, 5 * nrows),
+    #     gridspec_kw={'hspace': 0.2, 'wspace': 0.3})
+
+    # j = 0
+    # for i, key1 in enumerate(free_params[:-1]):
+    #     for key2 in free_params[i + 1:]:
+    #         fitp1d.plotting.plotEllipseMinimizer(
+    #             mini, key1, key2, model.param_labels, 'tab:blue',
+    #             ax=axs[j // ncols, j % ncols],
+    #             alpha=0.6, box=True, truth=model.initial, prior=model.prior
+    #         )
+    #         j += 1
+
+    # plt.savefig(f"minimizer-ellipses_{timestamp}.pdf",
+    #             dpi=200, bbox_inches='tight')
+    # plt.close()
 
 
 def sample(drop=400, thin=40):
