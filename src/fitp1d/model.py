@@ -514,14 +514,14 @@ class DoubletModel(Model):
         self.initial = {k: 0.1 for k in self.names}
         self.boundary = {k: (-5.0, 5.0) for k in self.names}
         self.param_labels = {
-            f"ew_{ion}": rf"E_{{{lbl}}}" for ion, lbl in self.IonLabels
+            f"ew_{ion}": rf"E_{{{lbl}}}" for ion, lbl in self.IonLabels.items()
         }
         if free_r:
             rnames = [f"r_{ion}" for ion in model_ions]
             self.initial |= {r: 0.8 for r in rnames}
             self.boundary |= {r: (0, 1) for r in rnames}
             self.param_labels |= {
-                f"r_{ion}": rf"r_{{{lbl}}}" for ion, lbl in self.IonLabels
+                f"r_{ion}": rf"r_{{{lbl}}}" for ion, lbl in self.IonLabels.items()
             }
 
         # self.doppler = (1.0 / k_s)**2 / 2.0
