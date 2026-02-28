@@ -109,6 +109,8 @@ class Model():
 
 
 class IonModel(Model):
+    """For per_transition bias, model_ions should be e.g., Si-II:1190
+    """
     _verbose = False
     Transitions = {
         "Si-II": [
@@ -258,11 +260,25 @@ class IonModel(Model):
             self.param_labels = {}
             self._pivots = {}
 
+            actual_ions = set()
+            corr_waves = {}
+            for line in model_ions:
+                ion, wave = line.split(':')
+                wave = int(wave)
+                actual_ions.add(ion)
+                if ion in corr_waves:
+                    corr_waves[ion].append(wave)
+                else:
+                    corr_waves[ion] = [wave]
+
             for ion, transitions in IonModel.Transitions.items():
-                if ion not in model_ions:
+                if ion not in actual_ions:
                     continue
 
                 for wave, fp in transitions:
+                    if int(wave) not in corr_waves[ion]:
+                        continue
+
                     vn = np.abs(LIGHT_SPEED * np.log(LYA_WAVELENGTH / wave))
                     if vn > self._vmax:
                         continue
@@ -271,6 +287,12 @@ class IonModel(Model):
                     self._transitions[key] = [(wave, fp)]
                     self._ions.append(key)
                     self.param_labels[f"a_{key}"] = f"a-{key}"
+                    corr_waves[ion].remove(int(wave))
+
+            for ion, l in corr_waves.items():
+                if not l:
+                    continue
+                print(f"WARNING: {ion} doesn't have some input lines", l)
         else:
             self._ions = model_ions.copy()
             self.param_labels = {
