@@ -537,7 +537,6 @@ class DoubletModel(Model):
         super().__init__()
         self.free_r = free_r
         self.names = []
-        self._custom_transitions = {}  # store float separations
         self.ions = [
             float(ion) if (isinstance(ion, float) or (isinstance(ion, str) and _is_float(ion)))
             else ion
@@ -545,12 +544,7 @@ class DoubletModel(Model):
         ]
 
         for ion in self.ions:
-            if isinstance(ion, float):
-                key = f"ew_{ion:.0f}"
-                self.names.append(key)
-                self._custom_transitions[key] = ion
-            else:
-                self.names.append(f"ew_{ion}")
+            self.names.append(self._get_ion_key(ion)[0])
 
         self.initial = {k: 0.1 for k in self.names}
         self.boundary = {k: (-5.0, 5.0) for k in self.names}
@@ -565,12 +559,8 @@ class DoubletModel(Model):
                 self.param_labels[f"ew_{ion}"] = rf"E_{{{lbl}}}"
 
         if free_r:
-            rnames = []
-            for ion in self.ions:
-                if isinstance(ion, float):
-                    rnames.append(f"r_{ion:.0f}")
-                else:
-                    rnames.append(f"r_{ion}")
+            rnames = [self._get_ion_key(ion)[1] for ion in self.ions]
+
             self.initial |= {r: 0.8 for r in rnames}
             self.boundary |= {r: (0, 1) for r in rnames}
             for ion in self.ions:
@@ -591,7 +581,7 @@ class DoubletModel(Model):
     def _get_ion_key(self, ion):
         """Return the ew_ key and r_ key for a given ion (str or float)."""
         if isinstance(ion, float):
-            return f"ew_custom_{ion}", f"r_custom_{ion}"
+            return f"ew_{ion:.0f}", f"r_{ion:.0f}"
         return f"ew_{ion}", f"r_{ion}"
 
     def _get_transition(self, ion):
