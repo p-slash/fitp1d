@@ -512,7 +512,8 @@ class DoubletModel(Model):
         "ew_Si-IV": LIGHT_SPEED * np.log(1402.77 / 1393.76),
         "ew_Mg-II": LIGHT_SPEED * np.log(2802.704 / 2795.528),
         "ew_C-IV": LIGHT_SPEED * np.log(1550.774 / 1548.202),
-        "ew_N-V": LIGHT_SPEED * np.log(1242.80 / 1238.83)
+        "ew_N-V": LIGHT_SPEED * np.log(1242.80 / 1238.83),
+        "ew_DR1": 700.0  # From modulation search
     }
 
     IonLabels = {
@@ -520,6 +521,7 @@ class DoubletModel(Model):
         "Mg-II": r"\mathrm{Mg~II}",
         "C-IV": r"\mathrm{C~IV}",
         "N-V": r"\mathrm{N~V}",
+        "DR1": r"\mathrm{DR1}"
     }
 
     def __init__(
