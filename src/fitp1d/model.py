@@ -322,10 +322,10 @@ class IonModel(Model):
 
         if self.free_decorr:
             assert (self.k_decor != 0)
-            self.names += ['alpha_ion']
-            self.param_labels["alpha_ion"] = r"\alpha_s"
-            self.boundary["alpha_ion"] = (-5.0, 5.0)
-            self.initial["alpha_ion"] = 1.0
+            self.names += ['decor_ion']
+            self.param_labels["decor_ion"] = r"\alpha_s"
+            self.boundary["decor_ion"] = (-5.0, 5.0)
+            self.initial["decor_ion"] = 1.0
 
         self._setConstA2Terms()
         self._setLinearATerms()
@@ -421,7 +421,7 @@ class IonModel(Model):
         result = np.zeros_like(self.kfine)
 
         if self.free_decorr:
-            F_decor = np.exp(kwargs["alpha_ion"] * self._decor_cache)
+            F_decor = np.exp(kwargs["decor_ion"] * self._decor_cache)
         else:
             F_decor = self._decor_cache
 
@@ -482,7 +482,7 @@ class IonModel(Model):
         result = np.zeros_like(k)
 
         if self.free_decorr:
-            F_decor = np.exp(-0.5 * kwargs["alpha_ion"] * (k / self.k_decor)**2)
+            F_decor = np.exp(-0.5 * kwargs["decor_ion"] * (k / self.k_decor)**2)
         elif self.k_decor != 0:
             F_decor = np.exp(-0.5 * (k / self.k_decor)**2)
         else:
@@ -507,6 +507,14 @@ class IonModel(Model):
         return result
 
 
+def _is_float(s):
+    try:
+        float(s)
+        return True
+    except ValueError:
+        return False
+
+
 class DoubletModel(Model):
     """Assumes relative strength r=0.5 """
     Transitions = {
@@ -514,7 +522,6 @@ class DoubletModel(Model):
         "ew_Mg-II": LIGHT_SPEED * np.log(2802.704 / 2795.528),
         "ew_C-IV": LIGHT_SPEED * np.log(1550.774 / 1548.202),
         "ew_N-V": LIGHT_SPEED * np.log(1242.80 / 1238.83),
-        "ew_DR1": 700.0  # From modulation search
     }
 
     IonLabels = {
@@ -522,39 +529,76 @@ class DoubletModel(Model):
         "Mg-II": r"\mathrm{Mg~II}",
         "C-IV": r"\mathrm{C~IV}",
         "N-V": r"\mathrm{N~V}",
-        "DR1": r"\mathrm{DR1}"
     }
 
     def __init__(
             self, model_ions=["C-IV"], k_s=0.009, free_r=False
     ):
         super().__init__()
-
         self.free_r = free_r
-        self.ions = model_ions.copy()
-        self.names = [f"ew_{ion}" for ion in model_ions]
+        self.names = []
+        self._custom_transitions = {}  # store float separations
+        self.ions = [
+            float(ion) if (isinstance(ion, float) or (isinstance(ion, str) and _is_float(ion)))
+            else ion
+            for ion in model_ions
+        ]
+
+        for ion in self.ions:
+            if isinstance(ion, float):
+                key = f"ew_{ion}"
+                self.names.append(key)
+                self._custom_transitions[key] = ion
+            else:
+                self.names.append(f"ew_{ion}")
 
         self.initial = {k: 0.1 for k in self.names}
         self.boundary = {k: (-5.0, 5.0) for k in self.names}
-        self.param_labels = {
-            f"ew_{ion}": rf"E_{{{lbl}}}" for ion, lbl in self.IonLabels.items()
-        }
+
+        self.param_labels = {}
+        for ion in self.ions:
+            if isinstance(ion, float):
+                key = f"ew_{ion}"
+                self.param_labels[key] = rf"E_{{{ion:.4g}}}"
+            else:
+                lbl = self.IonLabels[ion]
+                self.param_labels[f"ew_{ion}"] = rf"E_{{{lbl}}}"
+
         if free_r:
-            rnames = [f"r_{ion}" for ion in model_ions]
+            rnames = []
+            for ion in self.ions:
+                if isinstance(ion, float):
+                    rnames.append(f"r_{ion}")
+                else:
+                    rnames.append(f"r_{ion}")
             self.initial |= {r: 0.8 for r in rnames}
             self.boundary |= {r: (0, 1) for r in rnames}
-            self.param_labels |= {
-                f"r_{ion}": rf"r_{{{lbl}}}" for ion, lbl in self.IonLabels.items()
-            }
+            for ion in self.ions:
+                if isinstance(ion, float):
+                    key = f"r_{ion}"
+                    self.param_labels[key] = rf"r_{{{ion:.4g}}}"
+                else:
+                    lbl = self.IonLabels[ion]
+                    self.param_labels[f"r_{ion}"] = rf"r_{{{lbl}}}"
 
-        # self.doppler = (1.0 / k_s)**2 / 2.0
         self.k_s = k_s
-
         self._cached_model = {}
         self.kfine = None
         self.integrate = 1
         self.n1 = 0
         self._matrix = None
+    
+    def _get_ion_key(self, ion):
+        """Return the ew_ key and r_ key for a given ion (str or float)."""
+        if isinstance(ion, float):
+            return f"ew_custom_{ion}", f"r_custom_{ion}"
+        return f"ew_{ion}", f"r_{ion}"
+
+    def _get_transition(self, ion):
+        """Return doublet velocity separation for a given ion (str or float)."""
+        if isinstance(ion, float):
+            return ion
+        return DoubletModel.Transitions[f"ew_{ion}"]
 
     def cache(self, kfine, integrate=0):
         self.kfine = kfine
@@ -570,21 +614,24 @@ class DoubletModel(Model):
         if self.free_r:
             return
 
-        for key in self.names:
-            dv = DoubletModel.Transitions[key]
-            self._cached_model[key] = (1 + 0.8 * np.cos(kfine * dv)) * supp
+        for ion in self.ions:
+            ew_key, _ = self._get_ion_key(ion)
+            dv = self._get_transition(ion)
+            self._cached_model[ew_key] = (1 + 0.8 * np.cos(kfine * dv)) * supp
 
         if integrate > 1:
             n = self.kfine.size // integrate
             assert n * integrate == self.kfine.size
             self.kfine = self.kfine.reshape(n, integrate).mean(axis=1)
-            for key in self.names:
-                self._cached_model[key] = self._cached_model[key].reshape(
+            for ion in self.ions:
+                ew_key, _ = self._get_ion_key(ion)
+                self._cached_model[ew_key] = self._cached_model[ew_key].reshape(
                     n, integrate).mean(axis=1)
 
         self._matrix = np.empty((len(self.names), self.kfine.size))
-        for i, key in enumerate(self.names):
-            self._matrix[i] = self._cached_model[key]
+        for i, ion in enumerate(self.ions):
+            ew_key, _ = self._get_ion_key(ion)
+            self._matrix[i] = self._cached_model[ew_key]
 
     def getCachedModel(self, **kwargs):
         if self._cached_model:
@@ -596,13 +643,15 @@ class DoubletModel(Model):
 
     def eval(self, k, **kwargs):
         if not self.free_r:
-            kwargs |= {f'r_{ion}': 0.8 for ion in self.ions}
+            for ion in self.ions:
+                _, r_key = self._get_ion_key(ion)
+                kwargs |= {r_key: 0.8}
 
         result = np.zeros_like(k)
         for ion in self.ions:
-            key = f"ew_{ion}"
-            dv = DoubletModel.Transitions[key]
-            result += kwargs[key] * (1 + kwargs[f'r_{ion}'] * np.cos(k * dv))
+            ew_key, r_key = self._get_ion_key(ion)
+            dv = self._get_transition(ion)
+            result += kwargs[ew_key] * (1 + kwargs[r_key] * np.cos(k * dv))
 
         return result * np.exp(-(k * self.doppler)**2)
 
