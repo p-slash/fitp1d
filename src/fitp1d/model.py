@@ -546,7 +546,7 @@ class DoubletModel(Model):
 
         for ion in self.ions:
             if isinstance(ion, float):
-                key = f"ew_{ion}"
+                key = f"ew_{ion:.0f}"
                 self.names.append(key)
                 self._custom_transitions[key] = ion
             else:
@@ -558,8 +558,8 @@ class DoubletModel(Model):
         self.param_labels = {}
         for ion in self.ions:
             if isinstance(ion, float):
-                key = f"ew_{ion}"
-                self.param_labels[key] = rf"E_{{{ion:.4g}}}"
+                key = f"ew_{ion:.0f}"
+                self.param_labels[key] = rf"E_{{{ion:.0f}}}"
             else:
                 lbl = self.IonLabels[ion]
                 self.param_labels[f"ew_{ion}"] = rf"E_{{{lbl}}}"
@@ -568,15 +568,15 @@ class DoubletModel(Model):
             rnames = []
             for ion in self.ions:
                 if isinstance(ion, float):
-                    rnames.append(f"r_{ion}")
+                    rnames.append(f"r_{ion:.0f}")
                 else:
                     rnames.append(f"r_{ion}")
             self.initial |= {r: 0.8 for r in rnames}
             self.boundary |= {r: (0, 1) for r in rnames}
             for ion in self.ions:
                 if isinstance(ion, float):
-                    key = f"r_{ion}"
-                    self.param_labels[key] = rf"r_{{{ion:.4g}}}"
+                    key = f"r_{ion:.0f}"
+                    self.param_labels[key] = rf"r_{{{ion:.0f}}}"
                 else:
                     lbl = self.IonLabels[ion]
                     self.param_labels[f"r_{ion}"] = rf"r_{{{lbl}}}"
