@@ -50,7 +50,7 @@ class P1DLikelihood():
             use_camb=False, use_cosmopower=False, cp_model_dir=None,
             use_simple_lya_model=False,
             model_ions=["Si-II", "Si-III", "O-I"], doublet_ions=['C-IV'],
-            turn_off_x_ion_terms=False, free_ion_boost=False,
+            turn_off_x_ion_terms=False, free_ion_decor=False,
             per_transition_bias=False,
             add_reso_bias=False, add_reso_var=False,
             fname_cov=None, cov=None, forecast=False,
@@ -68,7 +68,7 @@ class P1DLikelihood():
             syst, use_camb, use_cosmopower, cp_model_dir,
             model_ions=model_ions, per_transition_bias=per_transition_bias,
             turn_off_x_ion_terms=turn_off_x_ion_terms,
-            free_ion_boost=free_ion_boost, doublet_ions=doublet_ions,
+            free_ion_decor=free_ion_decor, doublet_ions=doublet_ions,
             hcd_systems=hcd_systems,
             add_reso_bias=add_reso_bias, add_reso_var=add_reso_var)
         if use_simple_lya_model:
