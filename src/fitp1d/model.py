@@ -241,12 +241,12 @@ class IonModel(Model):
 
     def __init__(
             self, model_ions=["Si-II", "Si-III"], vmax=0,
-            per_transition_bias=False, doppler_boost=-(1.0 / 0.009)**2 / 2.0,
-            turn_off_x_ion_terms=False, free_boost=False
+            per_transition_bias=False, decorr_scale=0.009,
+            turn_off_x_ion_terms=False, free_decorr=False
     ):
         super().__init__()
         self.turn_off_x_ion_terms = turn_off_x_ion_terms
-        self.free_boost = free_boost
+        self.free_decorr = free_decorr
         self.per_transition_bias = per_transition_bias
 
         if vmax > 0:
@@ -308,7 +308,7 @@ class IonModel(Model):
         self.names = [f"a_{ion}" for ion in self._ions]
         self._ion_names = self.names.copy()
         self._karr = np.linspace(0, 0.2, int(1e4))
-        self.bboost = doppler_boost
+        self.k_decor = decorr_scale
         self._name_combos = []
 
         self.initial = {k: 1e-2 for k in self.names}
@@ -317,10 +317,10 @@ class IonModel(Model):
         self._splines = {}
         self._integrated_model = {}
         self.kfine = None
-        self._boost_cache = None
+        self._decor_cache = None
 
-        if self.free_boost:
-            assert (self.bboost != 0)
+        if self.free_decorr:
+            assert (self.k_decor != 0)
             self.names += ['alpha_ion']
             self.param_labels["alpha_ion"] = r"\alpha_s"
             self.boundary["alpha_ion"] = (-5.0, 5.0)
@@ -419,9 +419,14 @@ class IonModel(Model):
     def getCachedModel(self, **kwargs):
         result = np.zeros_like(self.kfine)
 
+        if self.free_decorr:
+            F_decor = np.exp(kwargs["alpha_ion"] * self._decor_cache)
+        else:
+            F_decor = self._decor_cache
+
         for key in self._ion_names:
             asi = kwargs[key]
-            result += asi * self._integrated_model['linear_a'][key]
+            result += asi * self._integrated_model['linear_a'][key] * F_decor
             result += (
                 self._integrated_model['const_a2'][key]
                 + self._integrated_model['oneion_a2'][key]
@@ -431,14 +436,8 @@ class IonModel(Model):
             a1 = kwargs[key1]
             a2 = kwargs[key2]
             m = self._integrated_model['twoion_a2'][f"{key1}-{key2}"]
-            result += a1 * a2 * m
+            result += a1 * a2 * m * F_decor
 
-        if self.free_boost:
-            bboost = np.exp(kwargs["alpha_ion"] * self._boost_cache)
-        else:
-            bboost = self._boost_cache
-
-        result *= bboost
         result += 1.0
 
         return result
@@ -450,12 +449,12 @@ class IonModel(Model):
         self._integrated_model['twoion_a2'] = {}
         self.kfine = kfine
 
-        if self.free_boost:
-            self._boost_cache = self.bboost * self.kfine**2
-        elif self.bboost != 0:
-            self._boost_cache = np.exp(self.bboost * self.kfine**2)
+        if self.free_decorr:
+            self._decor_cache = -0.5 * (self.kfine / self.k_decor)**2
+        elif self.k_decor != 0:
+            self._decor_cache = np.exp(-0.5 * (self.kfine / self.k_decor)**2)
         else:
-            self._boost_cache = 1
+            self._decor_cache = 1
 
         for term in ['linear_a', 'oneion_a2', 'twoion_a2']:
             for ionkey, interp in self._splines[term].items():
@@ -465,8 +464,8 @@ class IonModel(Model):
             n = self.kfine.size // integrate
             assert n * integrate == self.kfine.size
             self.kfine = self.kfine.reshape(n, integrate).mean(axis=1)
-            if not isinstance(self._boost_cache, int):
-                self._boost_cache = self._boost_cache.reshape(
+            if not isinstance(self._decor_cache, int):
+                self._decor_cache = self._decor_cache.reshape(
                     n, integrate).mean(axis=1)
 
             for term in ['linear_a', 'oneion_a2', 'twoion_a2']:
@@ -481,28 +480,27 @@ class IonModel(Model):
     def evaluate(self, k, **kwargs):
         result = np.zeros_like(k)
 
-        if self.free_boost:
-            boost = np.exp(kwargs["alpha_ion"] * self.bboost * k**2)
-        elif self.bboost != 0:
-            boost = np.exp(self.bboost * k**2)
+        if self.free_decorr:
+            F_decor = np.exp(-0.5 * kwargs["alpha_ion"] * (k / self.k_decor)**2)
+        elif self.k_decor != 0:
+            F_decor = np.exp(-0.5 * (k / self.k_decor)**2)
         else:
-            boost = 1.0
+            F_decor = 1.0
 
         for key in self._ion_names:
             asi = kwargs[key]
-            result += asi * self._splines['linear_a'][key](k)  # * boost
+            result += asi * self._splines['linear_a'][key](k) * F_decor
             result += (
                 self._splines['const_a2'][key]
                 + self._splines['oneion_a2'][key](k)
-            ) * asi**2  # * boost**2
+            ) * asi**2
 
         for (key1, key2) in self._name_combos:
             a1 = kwargs[key1]
             a2 = kwargs[key2]
             m = self._splines['twoion_a2'][f"{key1}-{key2}"](k)
-            result += a1 * a2 * m  # * boost**2
+            result += a1 * a2 * m * F_decor
 
-        result *= boost
         result += 1
 
         return result
@@ -518,10 +516,10 @@ class DoubletModel(Model):
     }
 
     IonLabels = {
-        "Si-IV": "\mathrm{Si~IV}",
-        "Mg-II": "\mathrm{Mg~II}",
-        "C-IV": "\mathrm{C~IV}",
-        "N-V": "\mathrm{N~V}",
+        "Si-IV": r"\mathrm{Si~IV}",
+        "Mg-II": r"\mathrm{Mg~II}",
+        "C-IV": r"\mathrm{C~IV}",
+        "N-V": r"\mathrm{N~V}",
     }
 
     def __init__(
@@ -1222,7 +1220,7 @@ class CombinedModel(Model):
             self, syst_dtype_names, use_camb=False, use_cosmopower=False,
             cp_model_dir=None,
             model_ions=["Si-II", "Si-III", "O-I"], per_transition_bias=False,
-            turn_off_x_ion_terms=False, free_ion_boost=False,
+            turn_off_x_ion_terms=False, free_ion_decor=False,
             doublet_ions=['C-IV'],
             hcd_systems=['lDLA', 'sDLA', 'subDLA', 'LLS'],
             add_reso_bias=False, add_reso_var=False,
@@ -1234,7 +1232,7 @@ class CombinedModel(Model):
             'ion': IonModel(
                 model_ions=model_ions, per_transition_bias=per_transition_bias,
                 turn_off_x_ion_terms=turn_off_x_ion_terms,
-                free_boost=free_ion_boost
+                free_decorr=free_ion_decor
             ),
             # 'noise': NoiseModel()
         }
