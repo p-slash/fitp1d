@@ -560,7 +560,7 @@ class DoubletModel(Model):
 
         if free_r:
             rnames = [self._get_ion_key(ion)[1] for ion in self.ions]
-
+            self.names.extend(rnames)
             self.initial |= {r: 0.8 for r in rnames}
             self.boundary |= {r: (0, 1) for r in rnames}
             for ion in self.ions:
@@ -577,6 +577,7 @@ class DoubletModel(Model):
         self.integrate = 1
         self.n1 = 0
         self._matrix = None
+        self.cached_supp = None
     
     def _get_ion_key(self, ion):
         """Return the ew_ key and r_ key for a given ion (str or float)."""
@@ -602,6 +603,7 @@ class DoubletModel(Model):
             self.n1 = n
 
         if self.free_r:
+            self.cached_supp = supp.copy()
             return
 
         for ion in self.ions:
@@ -628,10 +630,13 @@ class DoubletModel(Model):
             v = np.array([kwargs[_] for _ in self.names])
             return v.dot(self._matrix)
 
-        res = self.eval(self.kfine)
+        res = self.eval(self.kfine, supp=self.cached_supp, **kwargs)
         return res.reshape(self.n1, self.integrate).mean(axis=1)
 
-    def eval(self, k, **kwargs):
+    def eval(self, k, supp=None, **kwargs):
+        if supp is None:
+            supp = np.exp(-(k / self.k_s)**2 / 2.0)
+
         if not self.free_r:
             for ion in self.ions:
                 _, r_key = self._get_ion_key(ion)
@@ -643,7 +648,7 @@ class DoubletModel(Model):
             dv = self._get_transition(ion)
             result += kwargs[ew_key] * (1 + kwargs[r_key] * np.cos(k * dv))
 
-        return result * np.exp(-(k * self.doppler)**2)
+        return result * supp
 
 
 class ResolutionModel(Model):
